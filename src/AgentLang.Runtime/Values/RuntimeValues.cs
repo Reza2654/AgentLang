@@ -74,8 +74,13 @@ public sealed class AgentValue
 {
     public string Name { get; }
     public string? Model { get; set; }
+    public string? Persona { get; set; }
+    public string? Goal { get; set; }
+    public double? Temperature { get; set; }
+    public List<string> Fallbacks { get; } = [];
     public string? PermissionPolicy { get; set; }
     public bool MemoryEnabled { get; set; } = true;
+    public string MemoryMode { get; set; } = "long_term";
     public List<string> Memory { get; } = [];
     public List<AgentMessage> Inbox { get; } = [];
     public Dictionary<string, object?> Context { get; } = new(StringComparer.Ordinal);

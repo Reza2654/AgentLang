@@ -124,3 +124,27 @@ public sealed class IndexAccessExpressionNode(
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class DelegateExpressionNode(
+    ExpressionNode message,
+    string targetAgent,
+    SourceSpan span)
+    : ExpressionNode(span)
+{
+    public ExpressionNode Message { get; } = message;
+    public string TargetAgent { get; } = targetAgent;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class PlanExpressionNode(
+    ExpressionNode prompt,
+    SourceSpan span)
+    : ExpressionNode(span)
+{
+    public ExpressionNode Prompt { get; } = prompt;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}

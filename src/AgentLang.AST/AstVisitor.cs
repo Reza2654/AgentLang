@@ -83,6 +83,12 @@ public abstract class AstVisitor : IAstVisitor
             opt.Accept(this);
     }
 
+    public virtual void Visit(SwarmDeclarationNode node)
+    {
+        foreach (var item in node.Body)
+            item.Accept(this);
+    }
+
     public virtual void Visit(BlockStatementNode node)
     {
         foreach (var stmt in node.Statements)
@@ -156,6 +162,21 @@ public abstract class AstVisitor : IAstVisitor
         node.Tag?.Accept(this);
     }
 
+    public virtual void Visit(BroadcastStatementNode node)
+    {
+        node.Message.Accept(this);
+        node.Tag?.Accept(this);
+    }
+
+    public virtual void Visit(WaitStatementNode node) => node.TargetOrDuration.Accept(this);
+
+    public virtual void Visit(UntilStatementNode node)
+    {
+        node.Condition.Accept(this);
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
     public virtual void Visit(LiteralExpressionNode node) { }
     public virtual void Visit(IdentifierExpressionNode node) { }
 
@@ -199,4 +220,7 @@ public abstract class AstVisitor : IAstVisitor
         node.Target.Accept(this);
         node.Index.Accept(this);
     }
+
+    public virtual void Visit(DelegateExpressionNode node) => node.Message.Accept(this);
+    public virtual void Visit(PlanExpressionNode node) => node.Prompt.Accept(this);
 }

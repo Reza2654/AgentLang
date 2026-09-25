@@ -13,7 +13,7 @@ namespace AgentLang.Tests;
 
 public class RuntimeTests
 {
-    private static (AgentLangRuntime runtime, StringWriter output) CreateTestRuntime()
+    private static (AgentLangRuntime runtime, StringWriter output) CreateTestRuntime(TextReader? input = null, IPersistentMemoryStore? memoryStore = null)
     {
         var output = new StringWriter();
         var approver = new AutoApprovalProvider(true);
@@ -25,7 +25,9 @@ public class RuntimeTests
             modelRegistry: models,
             toolRegistry: tools,
             securityEngine: sec,
-            output: output);
+            memoryStore: memoryStore,
+            output: output,
+            input: input);
 
         return (runtime, output);
     }
@@ -488,5 +490,310 @@ public class RuntimeTests
         Assert.Equal("AIzaSyTestGeminiKey123", Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
         Assert.Equal("gemini-1.5-flash", Environment.GetEnvironmentVariable("GEMINI_MODEL"));
         Assert.Equal("tvly-test-runtime-key", Environment.GetEnvironmentVariable("TAVILY_API_KEY"));
+    }
+
+    private sealed class FailingTestModelProvider(string failModel) : IModelProvider
+    {
+        public string ProviderId => "failing-provider";
+        public bool CanHandle(string modelName) => modelName.Equals(failModel, StringComparison.OrdinalIgnoreCase);
+        public Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default) =>
+            Task.FromResult(ModelResponse.Failed("Simulated API outage / rate limit", request.ModelName));
+    }
+
+    [Fact]
+    public async Task ExecutesModelFallbackChain()
+    {
+        string source = """
+            agent FallbackAgent (model = "non-existent-fail", fallback = "mock") {
+                task testTask {
+                    res = think("Testing fallback feature")
+                    print("Answer: " + res)
+                    print("Provider: " + res.model)
+                }
+            }
+
+            main {
+                agent FallbackAgent
+            }
+            """;
+
+        var models = new ModelRegistry();
+        var failingProvider = new FailingTestModelProvider("non-existent-fail");
+        models.RegisterProvider(failingProvider);
+
+        var output = new StringWriter();
+        var sec = new SecurityEngine(new AutoApprovalProvider(true));
+        var tools = new ToolRegistry(sec, new Tools.Search.SearchProviderRegistry(true));
+        var runtime = new AgentLangRuntime(models, tools, sec, output: output);
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        await runtime.ExecuteProgramAsync(program);
+
+        Assert.Contains("Answer: Analysis of 'Testing fallback feature'", output.ToString());
+        Assert.Contains("Provider: mock", output.ToString());
+    }
+
+    [Fact]
+    public async Task ExecutesPersonaGoalAndTemperature()
+    {
+        string source = """
+            agent MathTutor (persona = "Math Genius", goal = "Accurate calculus", temperature = 0.2) {
+                task testPersona {
+                    print("Persona: " + MathTutor.persona)
+                    print("Goal: " + MathTutor.goal)
+                    print("Temp: " + MathTutor.temperature)
+                    res = think("Calculate derivative")
+                    print("Result: " + res)
+                }
+            }
+
+            main {
+                agent MathTutor
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Persona: Math Genius", result);
+        Assert.Contains("Goal: Accurate calculus", result);
+        Assert.Contains("Temp: 0.2", result);
+    }
+
+    [Fact]
+    public async Task ExecutesRememberRecallForgetAndShortTermMemory()
+    {
+        var memStore = new InMemoryMemoryStore();
+        string source = """
+            agent MemoryBot (model = mock, memory = short_term) {
+                task testMemory {
+                    remember("User favorite color is blue")
+                    remember("User age is 30")
+                    remember("System framework is AgentLang")
+                    
+                    found = recall("color")
+                    print("Recalled color: " + found[0])
+
+                    countBefore = forget("User age")
+                    print("Forgotten: " + countBefore)
+
+                    all = recall("*")
+                    print("Remaining count: " + all.length)
+                }
+            }
+
+            main {
+                agent MemoryBot
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime(memoryStore: memStore);
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Recalled color: User favorite color is blue", result);
+        Assert.Contains("Forgotten: 1", result);
+        Assert.Contains("Remaining count: 2", result);
+
+        // Verify short_term did NOT save to persistent store
+        var stored = await memStore.LoadMemoryAsync("MemoryBot");
+        Assert.Empty(stored);
+    }
+
+    [Fact]
+    public async Task ExecutesSwarmAndBroadcast()
+    {
+        string source = """
+            agent Scout (model = mock) {
+                task work {
+                    print("Scout active")
+                }
+            }
+
+            agent Analyst (model = mock) {
+                task work {
+                    print("Analyst active")
+                }
+            }
+
+            swarm ResearchSwarm {
+                agent Scout
+                agent Analyst
+                broadcast "Swarm synchronization event" with "sync"
+            }
+
+            main {
+                swarm ResearchSwarm
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Scout active", result);
+        Assert.Contains("Analyst active", result);
+
+        Assert.True(runtime.AgentInstances.TryGetValue("Scout", out var scout));
+        Assert.True(runtime.AgentInstances.TryGetValue("Analyst", out var analyst));
+        Assert.Single(scout.Inbox);
+        Assert.Equal("Swarm synchronization event", scout.Inbox[0].Content?.ToString());
+        Assert.Equal("sync", scout.Inbox[0].Tag?.ToString());
+        Assert.Single(analyst.Inbox);
+    }
+
+    [Fact]
+    public async Task ExecutesDelegationBetweenAgents()
+    {
+        string source = """
+            agent Specialist (model = mock) {
+                context query = ""
+                task solve {
+                    res = think("Solution for " + query)
+                    return res
+                }
+            }
+
+            agent Coordinator (model = mock) {
+                task coordinate {
+                    answer = delegate "Deep learning optimization" to Specialist
+                    print("Delegation reply: " + answer)
+                }
+            }
+
+            main {
+                agent Coordinator
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Delegation reply: Analysis of 'Solution for Deep learning optimization'", result);
+    }
+
+    [Fact]
+    public async Task ExecutesPlanExpression()
+    {
+        string source = """
+            agent Architect (model = mock) {
+                task planTask {
+                    p = plan "Build an autonomous rover"
+                    print("Plan output: " + p)
+                }
+            }
+
+            main {
+                agent Architect
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Plan output: Plan for 'Build an autonomous rover'", result);
+    }
+
+    [Fact]
+    public async Task ExecutesUntilLoop()
+    {
+        string source = """
+            main {
+                i = 0
+                until i >= 3 {
+                    i = i + 1
+                    print("Iteration: " + i)
+                }
+                print("Final i: " + i)
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Iteration: 1", result);
+        Assert.Contains("Iteration: 2", result);
+        Assert.Contains("Iteration: 3", result);
+        Assert.Contains("Final i: 3", result);
+    }
+
+    [Fact]
+    public async Task ExecutesConfirmFunction()
+    {
+        string source = """
+            main {
+                approved = confirm("Deploy to production?")
+                if (approved) {
+                    print("Deployment approved")
+                } else {
+                    print("Deployment denied")
+                }
+            }
+            """;
+
+        // Test with "yes"
+        var readerYes = new StringReader("yes\n");
+        var (runtime1, output1) = CreateTestRuntime(input: readerYes);
+        var program1 = new Parser.Parser(new SourceText(source)).ParseProgram();
+        await runtime1.ExecuteProgramAsync(program1);
+        Assert.Contains("Deployment approved", output1.ToString());
+
+        // Test with "no"
+        var readerNo = new StringReader("no\n");
+        var (runtime2, output2) = CreateTestRuntime(input: readerNo);
+        var program2 = new Parser.Parser(new SourceText(source)).ParseProgram();
+        await runtime2.ExecuteProgramAsync(program2);
+        Assert.Contains("Deployment denied", output2.ToString());
+    }
+
+    [Fact]
+    public async Task ExecutesWaitAndAwait()
+    {
+        string source = """
+            agent BackgroundWorker (model = mock) {
+                task work {
+                    print("Worker completed")
+                }
+            }
+
+            main {
+                wait 10
+                await BackgroundWorker
+                print("All done")
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Worker completed", result);
+        Assert.Contains("All done", result);
     }
 }

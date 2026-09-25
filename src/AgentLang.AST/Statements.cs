@@ -159,3 +159,42 @@ public sealed class SendMessageStatementNode(
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class BroadcastStatementNode(
+    ExpressionNode message,
+    ExpressionNode? tag,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode Message { get; } = message;
+    public ExpressionNode? Tag { get; } = tag;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class WaitStatementNode(
+    ExpressionNode targetOrDuration,
+    bool isAwait,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode TargetOrDuration { get; } = targetOrDuration;
+    public bool IsAwait { get; } = isAwait;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class UntilStatementNode(
+    ExpressionNode condition,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode Condition { get; } = condition;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}

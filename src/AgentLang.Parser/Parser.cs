@@ -66,7 +66,9 @@ public sealed class Parser
                 TokenType.Permission or TokenType.Tool or TokenType.Event or
                 TokenType.Main or TokenType.Function or TokenType.Send or
                 TokenType.To or TokenType.Description or TokenType.Execute or
-                TokenType.Type or TokenType.ImportApi;
+                TokenType.Type or TokenType.ImportApi or TokenType.Swarm or
+                TokenType.Broadcast or TokenType.Delegate or TokenType.Wait or
+                TokenType.Await or TokenType.Plan or TokenType.Until;
 
     private string ParseIdentifierName(string? customError = null)
     {
@@ -138,6 +140,10 @@ public sealed class Parser
             {
                 declarations.Add(ParseImportApiDeclaration());
             }
+            else if (Check(TokenType.Swarm))
+            {
+                declarations.Add(ParseSwarmDeclaration());
+            }
             else
             {
                 _diagnostics.ReportError("AL1003", $"Unexpected top-level token '{Current.Text}'", Current.Span);
@@ -156,7 +162,8 @@ public sealed class Parser
         {
             if (Check(TokenType.Main) || Check(TokenType.Agent) || Check(TokenType.MultiAgent) ||
                 Check(TokenType.Permission) || Check(TokenType.Tool) || Check(TokenType.Event) ||
-                Check(TokenType.Function) || Check(TokenType.Model) || Check(TokenType.ImportApi))
+                Check(TokenType.Function) || Check(TokenType.Model) || Check(TokenType.ImportApi) ||
+                Check(TokenType.Swarm))
             {
                 return;
             }
@@ -188,8 +195,11 @@ public sealed class Parser
             {
                 var cfgStart = Current.Span;
                 string key = Current.Text;
-                NextToken(); // consume key identifier or keyword (e.g. model, memory, permission, tools)
-                Match(TokenType.Equals);
+                NextToken(); // consume key identifier or keyword (e.g. model, memory, permission, tools, persona, temperature, fallback, goal)
+                if (Check(TokenType.Equals) || Check(TokenType.Colon))
+                    NextToken();
+                else
+                    Match(TokenType.Equals);
                 var valExpr = ParseExpression();
                 config.Add(new AgentConfigItemNode(key, valExpr, new SourceSpan(cfgStart.Start, valExpr.Span.End, _source.FilePath)));
 
@@ -564,6 +574,107 @@ public sealed class Parser
         return new ImportApiDeclarationNode(provider, apiKeyExpr, options, new SourceSpan(importToken.Span.Start, endSpan, _source.FilePath));
     }
 
+    private SwarmDeclarationNode ParseSwarmDeclaration()
+    {
+        var swarmToken = Match(TokenType.Swarm);
+        string name = ParseIdentifierName("Expected swarm name identifier");
+        Match(TokenType.OpenBrace);
+
+        string? coordinator = null;
+        string? strategy = null;
+        var agentNames = new List<string>();
+        var body = new List<AstNode>();
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Agent))
+            {
+                if (Lookahead.Type == TokenType.Identifier && Peek(2).Type != TokenType.OpenBrace && Peek(2).Type != TokenType.OpenParen)
+                {
+                    NextToken(); // consume 'agent'
+                    agentNames.Add(ParseIdentifierName());
+                    MatchOptional(TokenType.Semicolon, out _);
+                }
+                else
+                {
+                    var agentDecl = ParseAgentDeclaration();
+                    body.Add(agentDecl);
+                    agentNames.Add(agentDecl.Name);
+                }
+            }
+            else if (Current.Text.Equals("coordinator", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+            {
+                NextToken(); // coordinator
+                NextToken(); // : or =
+                coordinator = ParseIdentifierName();
+                MatchOptional(TokenType.Semicolon, out _);
+            }
+            else if (Current.Text.Equals("strategy", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+            {
+                NextToken(); // strategy
+                NextToken(); // : or =
+                var expr = ParseExpression();
+                strategy = expr is LiteralExpressionNode lit ? lit.Value?.ToString() : expr.ToString();
+                MatchOptional(TokenType.Semicolon, out _);
+            }
+            else if (Current.Text.Equals("agents", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+            {
+                NextToken(); // agents
+                NextToken(); // : or =
+                Match(TokenType.OpenBracket);
+                while (!Check(TokenType.CloseBracket) && !Check(TokenType.EndOfFile))
+                {
+                    agentNames.Add(ParseIdentifierName());
+                    if (Check(TokenType.Comma)) NextToken();
+                    else break;
+                }
+                Match(TokenType.CloseBracket);
+                MatchOptional(TokenType.Semicolon, out _);
+            }
+            else
+            {
+                body.Add(ParseStatement());
+            }
+        }
+
+        var closeBrace = Match(TokenType.CloseBrace);
+        return new SwarmDeclarationNode(name, coordinator, agentNames, strategy, body, new SourceSpan(swarmToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private BroadcastStatementNode ParseBroadcastStatement()
+    {
+        var bToken = Match(TokenType.Broadcast);
+        var msgExpr = ParseExpression();
+        ExpressionNode? tag = null;
+        if (Current.Text.Equals("with", StringComparison.OrdinalIgnoreCase))
+        {
+            NextToken();
+            tag = ParseExpression();
+        }
+        MatchOptional(TokenType.Semicolon, out _);
+        var end = tag?.Span.End ?? msgExpr.Span.End;
+        return new BroadcastStatementNode(msgExpr, tag, new SourceSpan(bToken.Span.Start, end, _source.FilePath));
+    }
+
+    private WaitStatementNode ParseWaitStatement()
+    {
+        bool isAwait = Check(TokenType.Await);
+        var token = NextToken(); // wait or await
+        var targetOrDuration = ParseExpression();
+        MatchOptional(TokenType.Semicolon, out _);
+        return new WaitStatementNode(targetOrDuration, isAwait, new SourceSpan(token.Span.Start, targetOrDuration.Span.End, _source.FilePath));
+    }
+
+    private UntilStatementNode ParseUntilStatement()
+    {
+        var untilToken = Match(TokenType.Until);
+        var condition = ParseExpression();
+        Match(TokenType.OpenBrace);
+        var body = ParseStatementListUntil(TokenType.CloseBrace);
+        var closeBrace = Match(TokenType.CloseBrace);
+        return new UntilStatementNode(condition, body, new SourceSpan(untilToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
     private List<StatementNode> ParseStatementListUntil(TokenType endToken)
     {
         var statements = new List<StatementNode>();
@@ -580,6 +691,8 @@ public sealed class Parser
             return ParseIfStatement();
         if (Check(TokenType.While))
             return ParseWhileStatement();
+        if (Check(TokenType.Until))
+            return ParseUntilStatement();
         if (Check(TokenType.Repeat))
             return ParseRepeatStatement();
         if (Check(TokenType.For))
@@ -596,11 +709,15 @@ public sealed class Parser
             return ParseFunctionDeclaration();
         if (Check(TokenType.Send))
             return ParseSendMessageStatement();
+        if (Check(TokenType.Broadcast))
+            return ParseBroadcastStatement();
+        if (Check(TokenType.Wait) || Check(TokenType.Await))
+            return ParseWaitStatement();
         if (Check(TokenType.ImportApi))
             return ParseImportApiDeclaration();
 
-        // Agent invocation: "agent Researcher"
-        if (Check(TokenType.Agent) && IsContextualIdentifier(Lookahead.Type))
+        // Agent / Swarm / MultiAgent invocation: "agent Researcher", "swarm ResearchSwarm"
+        if ((Check(TokenType.Agent) || Check(TokenType.Swarm) || Check(TokenType.MultiAgent)) && IsContextualIdentifier(Lookahead.Type))
         {
             var agToken = NextToken();
             string agName = ParseIdentifierName();
@@ -925,6 +1042,37 @@ public sealed class Parser
             }
             var closeParen = Match(TokenType.CloseParen);
             return new AiOperationExpressionNode(opToken.Text, args, new SourceSpan(opToken.Span.Start, closeParen.Span.End, _source.FilePath));
+        }
+
+        // Planning Operation: plan(...) or plan "..."
+        if (Check(TokenType.Plan))
+        {
+            var planToken = NextToken();
+            ExpressionNode promptExpr;
+            SourceSpan endSpan;
+            if (Check(TokenType.OpenParen))
+            {
+                Match(TokenType.OpenParen);
+                promptExpr = ParseExpression();
+                var cp = Match(TokenType.CloseParen);
+                endSpan = cp.Span;
+            }
+            else
+            {
+                promptExpr = ParseExpression();
+                endSpan = promptExpr.Span;
+            }
+            return new PlanExpressionNode(promptExpr, new SourceSpan(planToken.Span.Start, endSpan.End, _source.FilePath));
+        }
+
+        // Delegation Operation: delegate "task" to AgentName
+        if (Check(TokenType.Delegate))
+        {
+            var delToken = NextToken();
+            var msgExpr = ParseExpression();
+            Match(TokenType.To, "Expected 'to' after delegated message (e.g. delegate 'task' to AgentName)");
+            string target = ParseIdentifierName("Expected target agent name after 'to'");
+            return new DelegateExpressionNode(msgExpr, target, new SourceSpan(delToken.Span.Start, Current.Span.End, _source.FilePath));
         }
 
         // Builtins: print(...), input(...), type(...)

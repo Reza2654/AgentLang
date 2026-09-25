@@ -20,12 +20,17 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInFunctions = new(StringComparer.Ordinal)
     {
-        "print", "input", "type"
+        "print", "input", "type", "remember", "recall", "forget", "confirm"
+    };
+
+    private static readonly HashSet<string> BuiltInConstants = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "short_term", "long_term", "sequential", "parallel"
     };
 
     private static readonly HashSet<string> BuiltInAiOperations = new(StringComparer.Ordinal)
     {
-        "think", "research"
+        "think", "research", "plan"
     };
 
     public Scope GlobalScope => _globalScope;
@@ -51,6 +56,11 @@ public sealed class SemanticAnalyzer : AstVisitor
         foreach (var fn in BuiltInFunctions)
         {
             _globalScope.TryDeclare(new Symbol(fn, SymbolKind.Variable, SourceSpan.None));
+        }
+
+        foreach (var c in BuiltInConstants)
+        {
+            _globalScope.TryDeclare(new Symbol(c, SymbolKind.Variable, SourceSpan.None));
         }
     }
 
@@ -123,10 +133,29 @@ public sealed class SemanticAnalyzer : AstVisitor
                 _globalScope.TryDeclare(new Symbol($"event:{evt.Target}", SymbolKind.Event, evt.Span, evt));
                 break;
 
+            case SwarmDeclarationNode swarm:
+                if (!_globalScope.TryDeclare(new Symbol(swarm.Name, SymbolKind.MultiAgent, swarm.Span, swarm)))
+                {
+                    _diagnostics.ReportError("AL2004", $"Duplicate swarm declaration '{swarm.Name}'", swarm.Span);
+                }
+                break;
+
             case ImportApiDeclarationNode:
                 // importapi is processed during evaluation/execution
                 break;
         }
+    }
+
+    public override void Visit(SwarmDeclarationNode node)
+    {
+        var swarmScope = new Scope($"swarm:{node.Name}", _currentScope);
+        var prevScope = _currentScope;
+        _currentScope = swarmScope;
+        foreach (var item in node.Body)
+        {
+            item.Accept(this);
+        }
+        _currentScope = prevScope;
     }
 
     public override void Visit(AgentDeclarationNode node)
@@ -367,9 +396,9 @@ public sealed class SemanticAnalyzer : AstVisitor
     public override void Visit(AgentInvocationNode node)
     {
         var sym = _currentScope.Lookup(node.AgentName);
-        if (sym == null || sym.Kind != SymbolKind.Agent)
+        if (sym == null || (sym.Kind != SymbolKind.Agent && sym.Kind != SymbolKind.MultiAgent))
         {
-            string? suggestion = FindClosestMatch(node.AgentName, _currentScope.AllSymbols().Where(s => s.Kind == SymbolKind.Agent).Select(s => s.Name));
+            string? suggestion = FindClosestMatch(node.AgentName, _currentScope.AllSymbols().Where(s => s.Kind == SymbolKind.Agent || s.Kind == SymbolKind.MultiAgent).Select(s => s.Name));
             _diagnostics.ReportError("AL2009", $"Unknown agent '{node.AgentName}'", node.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
         }
     }

@@ -62,13 +62,17 @@ public sealed class OpenAiModelProvider : IModelProvider
                 ? _defaultModel
                 : request.ModelName;
 
+            var messages = new List<object>();
+            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+            {
+                messages.Add(new { role = "system", content = request.SystemInstruction });
+            }
+            messages.Add(new { role = "user", content = request.Prompt });
+
             var payload = new
             {
                 model = actualModel,
-                messages = new[]
-                {
-                    new { role = "user", content = request.Prompt }
-                },
+                messages = messages,
                 temperature = request.Temperature
             };
 
@@ -165,16 +169,28 @@ public sealed class GeminiModelProvider : IModelProvider
 
             string url = $"https://generativelanguage.googleapis.com/v1beta/models/{actualModel}:generateContent?key={apiKey}";
 
-            var payload = new
+            var payload = new Dictionary<string, object?>
             {
-                contents = new[]
+                ["contents"] = new[]
                 {
                     new
                     {
                         parts = new[] { new { text = request.Prompt } }
                     }
+                },
+                ["generationConfig"] = new
+                {
+                    temperature = request.Temperature
                 }
             };
+
+            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+            {
+                payload["system_instruction"] = new
+                {
+                    parts = new[] { new { text = request.SystemInstruction } }
+                };
+            }
 
             string json = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -259,15 +275,21 @@ public sealed class AnthropicModelProvider : IModelProvider
             httpRequest.Headers.Add("x-api-key", key);
             httpRequest.Headers.Add("anthropic-version", "2023-06-01");
 
-            var payload = new
+            var payload = new Dictionary<string, object?>
             {
-                model = actualModel,
-                max_tokens = 1024,
-                messages = new[]
+                ["model"] = actualModel,
+                ["max_tokens"] = 1024,
+                ["temperature"] = request.Temperature,
+                ["messages"] = new[]
                 {
                     new { role = "user", content = request.Prompt }
                 }
             };
+
+            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+            {
+                payload["system"] = request.SystemInstruction;
+            }
 
             string json = JsonSerializer.Serialize(payload);
             httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");

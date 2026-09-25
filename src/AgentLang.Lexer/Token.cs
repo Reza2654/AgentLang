@@ -52,6 +52,13 @@ public enum TokenType
     Execute,
     Type,
     ImportApi,
+    Swarm,
+    Broadcast,
+    Delegate,
+    Wait,
+    Await,
+    Plan,
+    Until,
 
     // Logical Operators
     And,

@@ -1,0 +1,86 @@
+// AgentLang v0.3.0 Demo: Autonomous Swarm, Memory, Persona, Fallback & Planning
+
+agent Researcher (
+    persona = "You are a senior tech analyst.",
+    goal = "Investigate next-generation autonomous AI architectures",
+    temperature = 0.3,
+    fallback = "mock",
+    memory = short_term
+) {
+    task analyze {
+        print("🧠 [Researcher] Creating execution plan...")
+        p = plan("Synthesize future autonomous AI architectures")
+        print(p)
+
+        print("\n🧠 [Researcher] Thinking about architectural trends...")
+        res = think("Analyze major autonomous AI trends in 2026")
+        print("💡 [Researcher Analysis]: " + res)
+
+        // Store finding in short-term memory
+        remember("Key Trend: Swarm intelligence and delegated tasks are standard in 2026")
+        remember("Security: Permissions must gate sensitive tool operations")
+
+        return res
+    }
+}
+
+agent Reviewer (
+    persona = "You are a meticulous technical editor.",
+    goal = "Ensure high accuracy and clarity in research outputs",
+    temperature = 0.1,
+    fallback = "mock"
+) {
+    context query = ""
+
+    task review {
+        print("\n🔍 [Reviewer] Reviewing delegated findings for: " + query)
+        reviewSummary = think("Synthesize and verify technical accuracy for: " + query)
+        return reviewSummary
+    }
+}
+
+agent Coordinator (
+    persona = "You are the swarm mission controller.",
+    fallback = "mock"
+) {
+    task coordinate {
+        print("🚀 [Coordinator] Orchestrating research pipeline...")
+
+        // 1. Delegate deep research to Researcher
+        findings = delegate "Research emerging autonomous architectures" to Researcher
+
+        // 2. Delegate editorial review to Reviewer
+        finalReport = delegate findings to Reviewer
+        print("\n📋 [Final Report Approved]: " + finalReport)
+
+        // 3. Inspect memories from Researcher
+        print("\n📚 [Coordinator] Inspecting Researcher Memory:")
+        facts = Researcher.memory
+        print("Recalled " + facts.length + " memory entries from Researcher:")
+        for fact in facts {
+            print("  • " + fact)
+        }
+
+        // 4. Test Until Loop
+        step = 0
+        until step >= 3 {
+            step = step + 1
+            print("  ✓ Mission milestone " + step + " verified")
+        }
+
+        print("\n🎉 Mission successfully completed!")
+    }
+}
+
+swarm TechSwarm {
+    strategy = "sequential"
+    agent Coordinator
+    broadcast "TechSwarm initialized with active mission parameters" with "startup"
+}
+
+main {
+    print("==================================================")
+    print("   AgentLang v0.3.0 Swarm & Intelligence Engine   ")
+    print("==================================================")
+    swarm TechSwarm
+}

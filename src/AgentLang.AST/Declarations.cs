@@ -210,6 +210,25 @@ public sealed class EventDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class SwarmDeclarationNode(
+    string name,
+    string? coordinator,
+    IReadOnlyList<string> agents,
+    string? strategy,
+    IReadOnlyList<AstNode> body,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public string? Coordinator { get; } = coordinator;
+    public IReadOnlyList<string> Agents { get; } = agents;
+    public string? Strategy { get; } = strategy;
+    public IReadOnlyList<AstNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class MainBlockNode(
     IReadOnlyList<StatementNode> statements,
     SourceSpan span)

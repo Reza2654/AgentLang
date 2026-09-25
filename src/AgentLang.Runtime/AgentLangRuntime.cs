@@ -27,6 +27,7 @@ public sealed class AgentLangRuntime
 
     private readonly Dictionary<string, AgentDeclarationNode> _agentDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, MultiAgentDeclarationNode> _multiAgentDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SwarmDeclarationNode> _swarmDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PermissionDeclarationNode> _permissionDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ToolDeclarationNode> _toolDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CustomToolDeclarationNode> _customToolDefs = new(StringComparer.OrdinalIgnoreCase);
@@ -44,6 +45,8 @@ public sealed class AgentLangRuntime
     public SecurityEngine SecurityEngine => _securityEngine;
     public IPersistentMemoryStore MemoryStore => _memoryStore;
     public IReadOnlyDictionary<string, AgentValue> AgentInstances => _agentInstances;
+    public IReadOnlyDictionary<string, SwarmDeclarationNode> SwarmDefs => _swarmDefs;
+    public IReadOnlyDictionary<string, MultiAgentDeclarationNode> MultiAgentDefs => _multiAgentDefs;
     public RuntimeScope GlobalScope => _globalScope;
 
     public AgentLangRuntime(
@@ -143,6 +146,24 @@ public sealed class AgentLangRuntime
                     }
                     break;
 
+                case SwarmDeclarationNode swarm:
+                    _swarmDefs[swarm.Name] = swarm;
+                    // Also catalog child agents
+                    foreach (var item in swarm.Body)
+                    {
+                        if (item is AgentDeclarationNode childAgent)
+                            _agentDefs[childAgent.Name] = childAgent;
+                        else if (item is ParallelBlockNode par)
+                        {
+                            foreach (var parChild in par.Body)
+                            {
+                                if (parChild is AgentDeclarationNode pAgent)
+                                    _agentDefs[pAgent.Name] = pAgent;
+                            }
+                        }
+                    }
+                    break;
+
                 case EventDeclarationNode evt:
                     _eventDefs[evt.Target] = evt;
                     _eventBus.Subscribe(evt.Target, async payload =>
@@ -174,7 +195,11 @@ public sealed class AgentLangRuntime
         }
         else
         {
-            // If no main block, execute top-level agents sequentially
+            // If no main block, execute top-level swarms then agents
+            foreach (var swarmDef in _swarmDefs.Values)
+            {
+                await ExecuteSwarmAsync(swarmDef.Name, _globalScope, ct);
+            }
             foreach (var agentDef in _agentDefs.Values)
             {
                 await ExecuteAgentAsync(agentDef.Name, _globalScope, ct);
@@ -210,18 +235,66 @@ public sealed class AgentLangRuntime
                 {
                     agentInstance.Model = val?.ToString();
                 }
+                else if (cfg.Key.Equals("persona", StringComparison.OrdinalIgnoreCase) || cfg.Key.Equals("system", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.Persona = val?.ToString();
+                }
+                else if (cfg.Key.Equals("goal", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.Goal = val?.ToString();
+                }
+                else if (cfg.Key.Equals("temperature", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (val != null)
+                        agentInstance.Temperature = Convert.ToDouble(val, CultureInfo.InvariantCulture);
+                }
+                else if (cfg.Key.Equals("fallback", StringComparison.OrdinalIgnoreCase) || cfg.Key.Equals("fallbacks", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.Fallbacks.Clear();
+                    if (val is IEnumerable<object?> list)
+                    {
+                        foreach (var item in list)
+                        {
+                            if (item != null) agentInstance.Fallbacks.Add(item.ToString()!);
+                        }
+                    }
+                    else if (val != null)
+                    {
+                        agentInstance.Fallbacks.Add(val.ToString()!);
+                    }
+                }
                 else if (cfg.Key.Equals("permission", StringComparison.OrdinalIgnoreCase))
                 {
                     agentInstance.PermissionPolicy = val?.ToString() ?? (cfg.Value is IdentifierExpressionNode idNode ? idNode.Name : null);
                 }
                 else if (cfg.Key.Equals("memory", StringComparison.OrdinalIgnoreCase))
                 {
-                    agentInstance.MemoryEnabled = val != null;
+                    string mStr = val?.ToString()?.ToLowerInvariant() ?? "";
+                    if (mStr is "false" or "none" or "disabled")
+                    {
+                        agentInstance.MemoryEnabled = false;
+                        agentInstance.MemoryMode = "none";
+                    }
+                    else if (mStr is "short_term" or "shortterm" or "ram" or "session")
+                    {
+                        agentInstance.MemoryEnabled = true;
+                        agentInstance.MemoryMode = "short_term";
+                    }
+                    else if (mStr is "long_term" or "longterm" or "persistent" or "disk" || val is true)
+                    {
+                        agentInstance.MemoryEnabled = true;
+                        agentInstance.MemoryMode = "long_term";
+                    }
+                    else
+                    {
+                        agentInstance.MemoryEnabled = val != null;
+                        agentInstance.MemoryMode = "long_term";
+                    }
                 }
             }
 
-            // Load persistent memory if enabled
-            if (agentInstance.MemoryEnabled)
+            // Load persistent memory if enabled and long_term mode
+            if (agentInstance.MemoryEnabled && agentInstance.MemoryMode.Equals("long_term", StringComparison.OrdinalIgnoreCase))
             {
                 var persisted = await _memoryStore.LoadMemoryAsync(agentName, ct);
                 foreach (var entry in persisted)
@@ -247,13 +320,21 @@ public sealed class AgentLangRuntime
             {
                 if (item is ContextDeclarationNode ctx)
                 {
-                    var ctxVal = await EvaluateExpressionAsync(ctx.Value, agentScope, ct);
-                    agentInstance.Context[ctx.Name] = ctxVal;
-                    agentInstance.Variables[ctx.Name] = ctxVal;
-                    agentScope.SetLocal(ctx.Name, ctxVal);
-                    if (agentInstance.MemoryEnabled && ctxVal != null)
+                    if (agentInstance.Context.TryGetValue(ctx.Name, out var existingCtx) && existingCtx != null && !(existingCtx is string s && string.IsNullOrEmpty(s)))
                     {
-                        agentInstance.Memory.Add($"{ctx.Name}: {ctxVal}");
+                        agentInstance.Variables[ctx.Name] = existingCtx;
+                        agentScope.SetLocal(ctx.Name, existingCtx);
+                    }
+                    else
+                    {
+                        var ctxVal = await EvaluateExpressionAsync(ctx.Value, agentScope, ct);
+                        agentInstance.Context[ctx.Name] = ctxVal;
+                        agentInstance.Variables[ctx.Name] = ctxVal;
+                        agentScope.SetLocal(ctx.Name, ctxVal);
+                        if (agentInstance.MemoryEnabled && ctxVal != null)
+                        {
+                            agentInstance.Memory.Add($"{ctx.Name}: {ctxVal}");
+                        }
                     }
                 }
                 else if (item is TaskDeclarationNode task)
@@ -270,8 +351,8 @@ public sealed class AgentLangRuntime
                 }
             }
 
-            // Persist memory if enabled
-            if (agentInstance.MemoryEnabled && agentInstance.Memory.Count > 0)
+            // Persist memory if enabled and long_term mode
+            if (agentInstance.MemoryEnabled && agentInstance.MemoryMode.Equals("long_term", StringComparison.OrdinalIgnoreCase) && agentInstance.Memory.Count > 0)
             {
                 await _memoryStore.SaveMemoryAsync(agentName, agentInstance.Memory, ct);
             }
@@ -350,6 +431,133 @@ public sealed class AgentLangRuntime
         }
     }
 
+    public async Task ExecuteSwarmAsync(string swarmName, RuntimeScope parentScope, CancellationToken ct = default)
+    {
+        if (!_swarmDefs.TryGetValue(swarmName, out var swarmDef))
+        {
+            throw new AgentLangRuntimeException($"Swarm '{swarmName}' was not defined.", errorCode: "AGT305");
+        }
+
+        var swarmScope = new RuntimeScope($"swarm:{swarmName}", parentScope);
+        bool isParallel = swarmDef.Strategy?.Equals("parallel", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (isParallel)
+        {
+            var tasks = new List<Task>();
+            // Launch named agents in parallel
+            foreach (var agName in swarmDef.Agents)
+            {
+                if (_agentDefs.ContainsKey(agName))
+                {
+                    tasks.Add(Task.Run(() => ExecuteAgentAsync(agName, swarmScope, ct), ct));
+                }
+            }
+
+            // Launch body items
+            foreach (var item in swarmDef.Body)
+            {
+                if (item is AgentDeclarationNode childAgent)
+                {
+                    tasks.Add(Task.Run(() => ExecuteAgentAsync(childAgent.Name, swarmScope, ct), ct));
+                }
+                else if (item is ParallelBlockNode par)
+                {
+                    foreach (var parChild in par.Body)
+                    {
+                        if (parChild is AgentDeclarationNode pAgent)
+                            tasks.Add(Task.Run(() => ExecuteAgentAsync(pAgent.Name, swarmScope, ct), ct));
+                        else if (parChild is StatementNode pStmt)
+                            tasks.Add(Task.Run(() => ExecuteStatementAsync(pStmt, swarmScope, ct), ct));
+                    }
+                }
+                else if (item is StatementNode stmt)
+                {
+                    tasks.Add(Task.Run(() => ExecuteStatementAsync(stmt, swarmScope, ct), ct));
+                }
+            }
+
+            await Task.WhenAll(tasks);
+        }
+        else
+        {
+            // Sequential strategy
+            foreach (var agName in swarmDef.Agents)
+            {
+                if (_agentDefs.ContainsKey(agName))
+                {
+                    await ExecuteAgentAsync(agName, swarmScope, ct);
+                }
+            }
+
+            foreach (var item in swarmDef.Body)
+            {
+                if (item is AgentDeclarationNode childAgent)
+                {
+                    await ExecuteAgentAsync(childAgent.Name, swarmScope, ct);
+                }
+                else if (item is ParallelBlockNode par)
+                {
+                    var pTasks = new List<Task>();
+                    foreach (var parChild in par.Body)
+                    {
+                        if (parChild is AgentDeclarationNode pAgent)
+                            pTasks.Add(Task.Run(() => ExecuteAgentAsync(pAgent.Name, swarmScope, ct), ct));
+                        else if (parChild is StatementNode pStmt)
+                            pTasks.Add(Task.Run(() => ExecuteStatementAsync(pStmt, swarmScope, ct), ct));
+                    }
+                    await Task.WhenAll(pTasks);
+                }
+                else if (item is StatementNode stmt)
+                {
+                    await ExecuteStatementAsync(stmt, swarmScope, ct);
+                }
+            }
+        }
+
+        // Run coordinator if specified
+        if (!string.IsNullOrWhiteSpace(swarmDef.Coordinator) && _agentDefs.ContainsKey(swarmDef.Coordinator))
+        {
+            await ExecuteAgentAsync(swarmDef.Coordinator, swarmScope, ct);
+        }
+
+        await _eventBus.PublishAsync($"{swarmName}.finished", swarmName);
+    }
+
+    public async Task ExecuteMultiAgentAsync(string multiAgentName, RuntimeScope parentScope, CancellationToken ct = default)
+    {
+        if (!_multiAgentDefs.TryGetValue(multiAgentName, out var multiDef))
+        {
+            throw new AgentLangRuntimeException($"MultiAgent '{multiAgentName}' was not defined.", errorCode: "AGT307");
+        }
+
+        var multiScope = new RuntimeScope($"multiagent:{multiAgentName}", parentScope);
+        foreach (var item in multiDef.Body)
+        {
+            if (item is AgentDeclarationNode child)
+            {
+                await ExecuteAgentAsync(child.Name, multiScope, ct);
+            }
+            else if (item is ParallelBlockNode par)
+            {
+                var tasks = new List<Task>();
+                foreach (var pItem in par.Body)
+                {
+                    if (pItem is AgentDeclarationNode pAg)
+                        tasks.Add(Task.Run(() => ExecuteAgentAsync(pAg.Name, multiScope, ct), ct));
+                    else if (pItem is StatementNode pStmt)
+                        tasks.Add(Task.Run(() => ExecuteStatementAsync(pStmt, multiScope, ct), ct));
+                }
+                await Task.WhenAll(tasks);
+            }
+            else if (item is StatementNode stmt)
+            {
+                await ExecuteStatementAsync(stmt, multiScope, ct);
+            }
+        }
+
+        await _eventBus.PublishAsync($"{multiAgentName}.finished", multiAgentName);
+    }
+
     public async Task ExecuteStatementAsync(StatementNode stmt, RuntimeScope scope, CancellationToken ct = default)
     {
         switch (stmt)
@@ -389,12 +597,90 @@ public sealed class AgentLangRuntime
                 await _eventBus.PublishAsync("agent.message", msg);
                 break;
 
+            case BroadcastStatementNode bcast:
+                var bcastContent = await EvaluateExpressionAsync(bcast.Message, scope, ct);
+                var bcastTag = bcast.Tag != null ? await EvaluateExpressionAsync(bcast.Tag, scope, ct) : null;
+                var bcastMsg = new AgentMessage(bcastContent, CurrentAgent?.Name, bcastTag);
+                foreach (var ag in _agentInstances.Values)
+                {
+                    ag.Inbox.Add(bcastMsg);
+                    await _eventBus.PublishAsync($"{ag.Name}.message", bcastMsg);
+                }
+                await _eventBus.PublishAsync("swarm.broadcast", bcastMsg);
+                await _eventBus.PublishAsync("agent.message", bcastMsg);
+                break;
+
+            case WaitStatementNode waitStmt:
+                if (waitStmt.IsAwait)
+                {
+                    if (waitStmt.TargetOrDuration is IdentifierExpressionNode id)
+                    {
+                        if (_swarmDefs.ContainsKey(id.Name))
+                            await ExecuteSwarmAsync(id.Name, scope, ct);
+                        else if (_multiAgentDefs.ContainsKey(id.Name))
+                            await ExecuteMultiAgentAsync(id.Name, scope, ct);
+                        else if (_agentDefs.ContainsKey(id.Name))
+                            await ExecuteAgentAsync(id.Name, scope, ct);
+                    }
+                    else
+                    {
+                        var target = await EvaluateExpressionAsync(waitStmt.TargetOrDuration, scope, ct);
+                        if (target is Task taskObj)
+                        {
+                            await taskObj;
+                        }
+                    }
+                }
+                else
+                {
+                    var durVal = await EvaluateExpressionAsync(waitStmt.TargetOrDuration, scope, ct);
+                    int ms = 0;
+                    if (durVal is int i) ms = i;
+                    else if (durVal is double d) ms = (int)d;
+                    else if (durVal is long l) ms = (int)l;
+                    else if (durVal is string s)
+                    {
+                        s = s.Trim();
+                        if (s.EndsWith("ms", StringComparison.OrdinalIgnoreCase) && int.TryParse(s[..^2], out int parsedMs))
+                            ms = parsedMs;
+                        else if (s.EndsWith("s", StringComparison.OrdinalIgnoreCase) && double.TryParse(s[..^1], NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedS))
+                            ms = (int)(parsedS * 1000);
+                        else if (int.TryParse(s, out int parsedDirect))
+                            ms = parsedDirect;
+                    }
+                    if (ms > 0)
+                    {
+                        await Task.Delay(ms, ct);
+                    }
+                }
+                break;
+
             case ExpressionStatementNode exprStmt:
                 await EvaluateExpressionAsync(exprStmt.Expression, scope, ct);
                 break;
 
             case AgentInvocationNode invocation:
-                await ExecuteAgentAsync(invocation.AgentName, scope, ct);
+                if (_swarmDefs.ContainsKey(invocation.AgentName))
+                {
+                    await ExecuteSwarmAsync(invocation.AgentName, scope, ct);
+                }
+                else if (_multiAgentDefs.ContainsKey(invocation.AgentName))
+                {
+                    await ExecuteMultiAgentAsync(invocation.AgentName, scope, ct);
+                }
+                else
+                {
+                    await ExecuteAgentAsync(invocation.AgentName, scope, ct);
+                }
+                break;
+
+            case UntilStatementNode untilStmt:
+                while (!IsTruthy(await EvaluateExpressionAsync(untilStmt.Condition, scope, ct)))
+                {
+                    var untilScope = new RuntimeScope("until_body", scope);
+                    foreach (var s in untilStmt.Body)
+                        await ExecuteStatementAsync(s, untilScope, ct);
+                }
                 break;
 
             case IfStatementNode ifStmt:
@@ -687,10 +973,20 @@ public sealed class AgentLangRuntime
                 if (_agentInstances.TryGetValue(id.Name, out var aInstance))
                     return aInstance;
 
+                // Check swarms
+                if (_swarmDefs.TryGetValue(id.Name, out var sDef))
+                    return sDef.Name;
+
                 return id.Name;
 
             case AiOperationExpressionNode aiOp:
                 return await ExecuteAiOperationAsync(aiOp, scope, ct);
+
+            case PlanExpressionNode planExpr:
+                return await ExecutePlanAsync(planExpr, scope, ct);
+
+            case DelegateExpressionNode delExpr:
+                return await ExecuteDelegateAsync(delExpr, scope, ct);
 
             case BinaryExpressionNode bin:
                 var left = await EvaluateExpressionAsync(bin.Left, scope, ct);
@@ -805,6 +1101,122 @@ public sealed class AgentLangRuntime
         _ => val.GetType().Name.ToLowerInvariant()
     };
 
+    private async Task<object?> ExecuteDelegateAsync(
+        DelegateExpressionNode delExpr,
+        RuntimeScope scope,
+        CancellationToken ct)
+    {
+        var msgVal = await EvaluateExpressionAsync(delExpr.Message, scope, ct);
+
+        if (!_agentDefs.ContainsKey(delExpr.TargetAgent))
+        {
+            throw new AgentLangRuntimeException($"Cannot delegate to unknown agent '{delExpr.TargetAgent}'", errorCode: "AGT306");
+        }
+
+        var targetInstance = _agentInstances.TryGetValue(delExpr.TargetAgent, out var existing)
+            ? existing
+            : new AgentValue(delExpr.TargetAgent);
+        _agentInstances[delExpr.TargetAgent] = targetInstance;
+
+        var delMsg = new AgentMessage(msgVal, CurrentAgent?.Name, "delegation");
+        targetInstance.Inbox.Add(delMsg);
+        targetInstance.Context["query"] = msgVal;
+        targetInstance.Context["delegated_task"] = msgVal;
+
+        await _eventBus.PublishAsync($"{delExpr.TargetAgent}.message", delMsg);
+
+        var executedAgent = await ExecuteAgentAsync(delExpr.TargetAgent, scope, ct);
+
+        // Find result from executed agent
+        if (executedAgent.Tasks.Count > 0)
+        {
+            var lastTask = executedAgent.Tasks.Values.Last();
+            return lastTask.Result is OperationValue op ? op.Result : lastTask.Result;
+        }
+
+        if (executedAgent.Variables.TryGetValue("result", out var resVar))
+        {
+            return resVar is OperationValue op ? op.Result : resVar;
+        }
+
+        if (executedAgent.Variables.Count > 0)
+        {
+            var lastVar = executedAgent.Variables.Values.Last();
+            return lastVar is OperationValue op ? op.Result : lastVar;
+        }
+
+        return executedAgent;
+    }
+
+    private async Task<OperationValue> ExecutePlanAsync(
+        PlanExpressionNode planExpr,
+        RuntimeScope scope,
+        CancellationToken ct)
+    {
+        var promptVal = await EvaluateExpressionAsync(planExpr.Prompt, scope, ct);
+        string goalPrompt = promptVal?.ToString() ?? string.Empty;
+
+        string planSystem = CurrentAgent?.Persona ?? "You are an expert AI planning agent. Analyze the goal and provide a clear, concise, numbered step-by-step plan to achieve it.";
+        string planPrompt = $"Goal: {goalPrompt}\n\nPlease generate a concise, numbered execution plan to achieve this goal.";
+
+        string primaryModel = scope.TryGet("__task_model__", out var tm) && tm != null
+            ? tm.ToString()!
+            : (CurrentAgent?.Model ?? "mock");
+
+        var candidates = new List<string> { primaryModel };
+        if (CurrentAgent?.Fallbacks.Count > 0)
+        {
+            foreach (var fb in CurrentAgent.Fallbacks)
+            {
+                if (!candidates.Contains(fb, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(fb);
+            }
+        }
+
+        List<string> errors = [];
+        foreach (var modelCandidate in candidates)
+        {
+            var provider = _modelRegistry.Resolve(modelCandidate);
+            var req = new ModelRequest(
+                ModelName: modelCandidate,
+                Prompt: planPrompt,
+                SystemInstruction: planSystem,
+                Context: CurrentAgent?.MemoryEnabled == true ? CurrentAgent.Memory : null,
+                Temperature: CurrentAgent?.Temperature ?? 0.5);
+
+            try
+            {
+                var resp = await provider.GenerateAsync(req, ct);
+                if (resp.Success)
+                {
+                    string content = resp.Content;
+                    if (provider is MockModelProvider && (string.IsNullOrWhiteSpace(content) || content.StartsWith("Analysis of")))
+                    {
+                        content = $"Plan for '{goalPrompt}':\n1. Research requirements and gather inputs\n2. Design and execute core agent tasks\n3. Review outputs and verify completion";
+                    }
+                    var op = OperationValue.Succeeded("plan", content, provider.ProviderId, resp.Latency);
+                    if (CurrentAgent?.MemoryEnabled == true)
+                    {
+                        CurrentAgent.Memory.Add($"plan: {content}");
+                    }
+                    return op;
+                }
+                else
+                {
+                    errors.Add($"[{modelCandidate}] {resp.ErrorMessage}");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"[{modelCandidate}] {ex.Message}");
+            }
+        }
+
+        throw new AgentLangRuntimeException(
+            $"Planning failed across all candidates ({string.Join(", ", candidates)}): {string.Join("; ", errors)}",
+            errorCode: "AGT601");
+    }
+
     private async Task<OperationValue> ExecuteAiOperationAsync(
         AiOperationExpressionNode aiOp,
         RuntimeScope scope,
@@ -818,21 +1230,35 @@ public sealed class AgentLangRuntime
         }
 
         // Check for task-level model override first, then agent model, then default "mock"
-        string modelName = scope.TryGet("__task_model__", out var tm) && tm != null
+        string primaryModel = scope.TryGet("__task_model__", out var tm) && tm != null
             ? tm.ToString()!
             : (CurrentAgent?.Model ?? "mock");
 
-        // ModelRegistry.Resolve automatically resolves aliases (e.g. fast -> gemini.flash)
-        var provider = _modelRegistry.Resolve(modelName);
+        var candidates = new List<string> { primaryModel };
+        if (CurrentAgent?.Fallbacks.Count > 0)
+        {
+            foreach (var fb in CurrentAgent.Fallbacks)
+            {
+                if (!candidates.Contains(fb, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(fb);
+            }
+        }
 
         IReadOnlyList<string>? memoryContext = CurrentAgent?.MemoryEnabled == true
             ? CurrentAgent.Memory
             : null;
 
-        var request = new ModelRequest(
-            ModelName: modelName,
-            Prompt: promptArg,
-            Context: memoryContext);
+        string? systemInstruction = CurrentAgent?.Persona;
+        if (systemInstruction == null && CurrentAgent?.Goal != null)
+        {
+            systemInstruction = $"Goal: {CurrentAgent.Goal}";
+        }
+        else if (systemInstruction != null && CurrentAgent?.Goal != null)
+        {
+            systemInstruction = $"{systemInstruction}\nGoal: {CurrentAgent.Goal}";
+        }
+
+        double temperature = CurrentAgent?.Temperature ?? 0.7;
 
         if (aiOp.OperationName.Equals("research", StringComparison.OrdinalIgnoreCase))
         {
@@ -859,7 +1285,6 @@ public sealed class AgentLangRuntime
                 searchArgs["provider"] = searchProvider;
 
             // Execute research: authorize and perform browser search if needed
-            string? policy = CurrentAgent?.PermissionPolicy;
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
                 CurrentAgent?.PermissionPolicy,
@@ -874,49 +1299,97 @@ public sealed class AgentLangRuntime
 
             string searchData = toolRes.Output?.ToString() ?? "";
             var promptWithTool = $"{promptArg}\nContext from search: {searchData}";
-            var response = await provider.GenerateAsync(request with { Prompt = promptWithTool }, ct);
-            if (!response.Success)
-            {
-                throw new AgentLangRuntimeException(
-                    $"AI model error ({response.Model}): {response.ErrorMessage}",
-                    errorCode: "AGT600");
-            }
-            string finalContent = (provider is MockModelProvider) ? searchData : response.Content;
 
-            var opVal = OperationValue.Succeeded(
-                "research",
-                finalContent,
-                provider.ProviderId,
-                response.Latency,
-                ["browser.search"]);
-
-            if (CurrentAgent?.MemoryEnabled == true)
+            List<string> errors = [];
+            foreach (var candidate in candidates)
             {
-                CurrentAgent.Memory.Add($"research: {finalContent}");
+                var provider = _modelRegistry.Resolve(candidate);
+                var req = new ModelRequest(
+                    ModelName: candidate,
+                    Prompt: promptWithTool,
+                    SystemInstruction: systemInstruction,
+                    Context: memoryContext,
+                    Temperature: temperature);
+
+                try
+                {
+                    var response = await provider.GenerateAsync(req, ct);
+                    if (response.Success)
+                    {
+                        string finalContent = (provider is MockModelProvider) ? searchData : response.Content;
+                        var opVal = OperationValue.Succeeded(
+                            "research",
+                            finalContent,
+                            provider.ProviderId,
+                            response.Latency,
+                            ["browser.search"]);
+
+                        if (CurrentAgent?.MemoryEnabled == true)
+                        {
+                            CurrentAgent.Memory.Add($"research: {finalContent}");
+                        }
+                        return opVal;
+                    }
+                    else
+                    {
+                        errors.Add($"[{candidate}] {response.ErrorMessage}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"[{candidate}] {ex.Message}");
+                }
             }
-            return opVal;
+
+            throw new AgentLangRuntimeException(
+                $"AI research error across all candidates ({string.Join(", ", candidates)}): {string.Join("; ", errors)}",
+                errorCode: "AGT600");
         }
         else
         {
             // think operation
-            var response = await provider.GenerateAsync(request, ct);
-            if (!response.Success)
+            List<string> errors = [];
+            foreach (var candidate in candidates)
             {
-                throw new AgentLangRuntimeException(
-                    $"AI model error ({response.Model}): {response.ErrorMessage}",
-                    errorCode: "AGT600");
-            }
-            var opVal = OperationValue.Succeeded(
-                "think",
-                response.Content,
-                provider.ProviderId,
-                response.Latency);
+                var provider = _modelRegistry.Resolve(candidate);
+                var req = new ModelRequest(
+                    ModelName: candidate,
+                    Prompt: promptArg,
+                    SystemInstruction: systemInstruction,
+                    Context: memoryContext,
+                    Temperature: temperature);
 
-            if (CurrentAgent?.MemoryEnabled == true)
-            {
-                CurrentAgent.Memory.Add($"think: {response.Content}");
+                try
+                {
+                    var response = await provider.GenerateAsync(req, ct);
+                    if (response.Success)
+                    {
+                        var opVal = OperationValue.Succeeded(
+                            "think",
+                            response.Content,
+                            provider.ProviderId,
+                            response.Latency);
+
+                        if (CurrentAgent?.MemoryEnabled == true)
+                        {
+                            CurrentAgent.Memory.Add($"think: {response.Content}");
+                        }
+                        return opVal;
+                    }
+                    else
+                    {
+                        errors.Add($"[{candidate}] {response.ErrorMessage}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"[{candidate}] {ex.Message}");
+                }
             }
-            return opVal;
+
+            throw new AgentLangRuntimeException(
+                $"AI think error across all candidates ({string.Join(", ", candidates)}): {string.Join("; ", errors)}",
+                errorCode: "AGT600");
         }
     }
 
@@ -959,6 +1432,89 @@ public sealed class AgentLangRuntime
                 return GetTypeName(val);
             }
 
+            if (calleeId.Name.Equals("remember", StringComparison.OrdinalIgnoreCase))
+            {
+                if (call.Arguments.Count > 0 && CurrentAgent != null)
+                {
+                    var item = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                    if (item != null)
+                    {
+                        string strItem = item.ToString()!;
+                        if (!CurrentAgent.Memory.Contains(strItem))
+                        {
+                            CurrentAgent.Memory.Add(strItem);
+                        }
+                        if (CurrentAgent.MemoryMode.Equals("long_term", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await _memoryStore.SaveMemoryAsync(CurrentAgent.Name, CurrentAgent.Memory, ct);
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            if (calleeId.Name.Equals("recall", StringComparison.OrdinalIgnoreCase))
+            {
+                if (CurrentAgent == null) return new List<object?>();
+                string query = string.Empty;
+                if (call.Arguments.Count > 0)
+                {
+                    var qVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                    query = qVal?.ToString() ?? string.Empty;
+                }
+                if (string.IsNullOrWhiteSpace(query) || query == "*")
+                {
+                    return CurrentAgent.Memory.Cast<object?>().ToList();
+                }
+                var matches = CurrentAgent.Memory
+                    .Where(m => m.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    .Cast<object?>()
+                    .ToList();
+                return matches;
+            }
+
+            if (calleeId.Name.Equals("forget", StringComparison.OrdinalIgnoreCase))
+            {
+                if (CurrentAgent == null) return 0;
+                string query = string.Empty;
+                if (call.Arguments.Count > 0)
+                {
+                    var qVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                    query = qVal?.ToString() ?? string.Empty;
+                }
+                int removed = 0;
+                if (string.IsNullOrWhiteSpace(query) || query == "*")
+                {
+                    removed = CurrentAgent.Memory.Count;
+                    CurrentAgent.Memory.Clear();
+                }
+                else
+                {
+                    removed = CurrentAgent.Memory.RemoveAll(m => m.Contains(query, StringComparison.OrdinalIgnoreCase));
+                }
+                if (removed > 0 && CurrentAgent.MemoryMode.Equals("long_term", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _memoryStore.SaveMemoryAsync(CurrentAgent.Name, CurrentAgent.Memory, ct);
+                }
+                return removed;
+            }
+
+            if (calleeId.Name.Equals("confirm", StringComparison.OrdinalIgnoreCase))
+            {
+                string prompt = "Are you sure?";
+                if (call.Arguments.Count > 0)
+                {
+                    var promptVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                    prompt = promptVal?.ToString() ?? prompt;
+                }
+                await _output.WriteAsync($"{prompt} [y/N]: ");
+                string? line = await _input.ReadLineAsync(ct);
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                line = line.Trim().ToLowerInvariant();
+                return line is "y" or "yes" or "true" or "1";
+            }
+
             // Task invocation by name within current agent
             if (CurrentAgent != null && CurrentAgent.Tasks.TryGetValue(calleeId.Name, out var tv))
             {
@@ -967,10 +1523,17 @@ public sealed class AgentLangRuntime
         }
 
         // AI Operations invocation if callee was parsed as identifier
-        if (call.Callee is IdentifierExpressionNode aiName &&
-            (aiName.Name.Equals("think", StringComparison.OrdinalIgnoreCase) || aiName.Name.Equals("research", StringComparison.OrdinalIgnoreCase)))
+        if (call.Callee is IdentifierExpressionNode aiName)
         {
-            return await ExecuteAiOperationAsync(new AiOperationExpressionNode(aiName.Name, call.Arguments, call.Span), scope, ct);
+            if (aiName.Name.Equals("think", StringComparison.OrdinalIgnoreCase) || aiName.Name.Equals("research", StringComparison.OrdinalIgnoreCase))
+            {
+                return await ExecuteAiOperationAsync(new AiOperationExpressionNode(aiName.Name, call.Arguments, call.Span), scope, ct);
+            }
+            if (aiName.Name.Equals("plan", StringComparison.OrdinalIgnoreCase))
+            {
+                var goalArg = call.Arguments.Count > 0 ? call.Arguments[0] : new LiteralExpressionNode("", call.Span);
+                return await ExecutePlanAsync(new PlanExpressionNode(goalArg, call.Span), scope, ct);
+            }
         }
 
         // Direct built-in tool invocation by member access, e.g. browser.search(...) or filesystem.read(...)
@@ -1134,6 +1697,16 @@ public sealed class AgentLangRuntime
                 return av.Model;
             if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
                 return av.Name;
+            if (member.Equals("persona", StringComparison.OrdinalIgnoreCase) || member.Equals("system", StringComparison.OrdinalIgnoreCase))
+                return av.Persona;
+            if (member.Equals("goal", StringComparison.OrdinalIgnoreCase))
+                return av.Goal;
+            if (member.Equals("temperature", StringComparison.OrdinalIgnoreCase))
+                return av.Temperature;
+            if (member.Equals("fallback", StringComparison.OrdinalIgnoreCase) || member.Equals("fallbacks", StringComparison.OrdinalIgnoreCase))
+                return av.Fallbacks;
+            if (member.Equals("memoryMode", StringComparison.OrdinalIgnoreCase))
+                return av.MemoryMode;
             if (av.Tasks.TryGetValue(member, out var childTask))
                 return childTask;
             if (av.Context.TryGetValue(member, out var ctxVal))
