@@ -1,0 +1,27 @@
+permission ResearchPermission {
+    allow browser.search
+    allow filesystem.write
+    cannot terminal
+}
+
+agent Researcher (
+    model = GPT,
+    permission = ResearchPermission,
+    tools = [browser, filesystem]
+) {
+    context question = "What are the latest AI trends in 2026?"
+
+    task research {
+        data = research(question)
+        answer = think(data.result)
+        return answer
+    }
+
+    print("Researcher output:")
+    print(research.result)
+}
+
+main {
+    print("Initiating simple researcher workflow...")
+    agent Researcher
+}

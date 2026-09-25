@@ -1,0 +1,26 @@
+agent Researcher (model = GPT) {
+    task research {
+        findings = think("Researching agent event loop architecture")
+        return findings
+    }
+}
+
+agent Reviewer (model = Claude) {
+    task review {
+        feedback = think("Automated peer review triggered by event")
+        return feedback
+    }
+
+    print("Event handler executed: " + review.result)
+}
+
+event research.finished {
+    print("[EVENT RECEIVED] research.finished triggered!")
+    agent Reviewer
+}
+
+main {
+    print("Initiating event-driven agent pipeline...")
+    agent Researcher
+    print("Event pipeline completed.")
+}

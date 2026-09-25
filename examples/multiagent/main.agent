@@ -1,0 +1,24 @@
+multiagent ResearchAndReviewTeam {
+    agent Researcher (model = GPT) {
+        task research {
+            data = think("Investigate state of AI Agents in 2026")
+            return data
+        }
+    }
+
+    agent Reviewer (model = Claude) {
+        task review {
+            previousWork = Researcher.research.result
+            audit = think("Audit the following research: " + previousWork)
+            return audit
+        }
+    }
+}
+
+main {
+    print("Launching MultiAgent Research & Review Team...")
+    agent Researcher
+    agent Reviewer
+    print("\n--- Final Review Result ---")
+    print(Reviewer.review.result)
+}

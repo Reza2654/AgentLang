@@ -1,0 +1,29 @@
+agent ResilientAgent (model = GPT) {
+    context targetEndpoint = "https://api.external.service/data"
+
+    task resilientFetch {
+        attempts = 0
+        try {
+            retry 3 {
+                attempts = attempts + 1
+                print("Attempt " + attempts + ": Connecting to service...")
+                if attempts < 2 {
+                    // Simulate transient network blip
+                    fault = 1 / 0
+                }
+            }
+            res = think("Process retrieved payload successfully")
+            return res
+        } catch err {
+            print("Retry exceeded with error: " + err)
+            return "Fallback result"
+        }
+    }
+
+    print("Task result: " + resilientFetch.result)
+}
+
+main {
+    print("Testing resilient execution with retry logic...")
+    agent ResilientAgent
+}

@@ -1,0 +1,34 @@
+multiagent ParallelAnalysis {
+    parallel {
+        agent TrendsSpecialist (model = GPT) {
+            task analyzeTrends {
+                return think("Analyze upcoming AI technology trends")
+            }
+        }
+
+        agent RiskSpecialist (model = Claude) {
+            task analyzeRisks {
+                return think("Analyze AI security and compliance risks")
+            }
+        }
+    }
+
+    agent ExecutiveSynthesizer (model = Gemini) {
+        task synthesize {
+            trends = TrendsSpecialist.analyzeTrends.result
+            risks = RiskSpecialist.analyzeRisks.result
+            summary = think("Synthesize combined findings:\nTrends: " + trends + "\nRisks: " + risks)
+            return summary
+        }
+    }
+}
+
+main {
+    print("Starting Parallel MultiAgent Execution...")
+    agent TrendsSpecialist
+    agent RiskSpecialist
+    print("Parallel execution complete. Running synthesizer...")
+    agent ExecutiveSynthesizer
+    print("\n--- Executive Summary ---")
+    print(ExecutiveSynthesizer.synthesize.result)
+}

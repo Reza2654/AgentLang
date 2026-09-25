@@ -1,0 +1,42 @@
+## .NET Core / C#
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+.vs/
+.vscode/
+.idea/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rms/
+[Aa]rm64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Dotnet CLI
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Secrets / local env
+.env
+*.local.agent

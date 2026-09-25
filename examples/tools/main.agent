@@ -1,0 +1,27 @@
+permission ToolAccess {
+    allow browser.search
+    allow filesystem.write
+    allow filesystem.read
+    cannot terminal
+}
+
+agent ToolUser (
+    model = GPT,
+    permission = ToolAccess,
+    tools = [browser, filesystem]
+) {
+    context query = "AgentLang Tool Capabilities"
+
+    task runTools {
+        info = research(query)
+        summary = think("Summarize capabilities: " + info.result)
+        return summary
+    }
+
+    print("Tool task result: " + runTools.result)
+}
+
+main {
+    print("Testing Tool integration...")
+    agent ToolUser
+}

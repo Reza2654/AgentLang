@@ -1,0 +1,16 @@
+agent Greeter (model = GPT) {
+    context greeting = "Hello, AgentLang World!"
+
+    task sayHello {
+        msg = think(greeting)
+        return msg
+    }
+
+    print(sayHello.result)
+}
+
+main {
+    print("Welcome to AgentLang v0.1.0-alpha!")
+    agent Greeter
+    print("Execution complete.")
+}

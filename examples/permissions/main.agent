@@ -1,0 +1,24 @@
+permission StrictPolicy {
+    allow browser.search
+    ask filesystem.write
+    cannot terminal
+}
+
+agent SecureAgent (
+    model = GPT,
+    permission = StrictPolicy,
+    tools = [browser, filesystem, terminal]
+) {
+    task safeTask {
+        info = research("Autonomous Agent Security")
+        return info
+    }
+
+    print("Safe task finished: " + safeTask.result)
+}
+
+main {
+    print("Testing Security Policy enforcement...")
+    agent SecureAgent
+    print("Zero-trust permissions verified successfully.")
+}

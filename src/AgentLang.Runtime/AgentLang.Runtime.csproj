@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentLang.AST\AgentLang.AST.csproj" />
+    <ProjectReference Include="..\AgentLang.Lexer\AgentLang.Lexer.csproj" />
+    <ProjectReference Include="..\AgentLang.Parser\AgentLang.Parser.csproj" />
+    <ProjectReference Include="..\AgentLang.Semantic\AgentLang.Semantic.csproj" />
+    <ProjectReference Include="..\AgentLang.Security\AgentLang.Security.csproj" />
+    <ProjectReference Include="..\AgentLang.Models\AgentLang.Models.csproj" />
+    <ProjectReference Include="..\AgentLang.Tools\AgentLang.Tools.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

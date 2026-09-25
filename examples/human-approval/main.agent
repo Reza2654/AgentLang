@@ -1,0 +1,25 @@
+permission CriticalOperations {
+    allow browser.search
+    ask filesystem.write
+    cannot terminal
+}
+
+agent AdminAgent (
+    model = GPT,
+    permission = CriticalOperations,
+    tools = [browser, filesystem]
+) {
+    task prepareReport {
+        data = research("Critical Infrastructure Security")
+        report = think("Prepare security audit report: " + data.result)
+        return report
+    }
+
+    print("Audit report prepared: " + prepareReport.result)
+}
+
+main {
+    print("Executing sensitive operation with human approval guardrails...")
+    agent AdminAgent
+    print("Execution complete.")
+}

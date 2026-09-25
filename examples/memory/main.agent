@@ -1,0 +1,34 @@
+agent MemoryAgent (
+    model = GPT
+) {
+    context user = "Reza"
+    context role = "Lead Language Architect"
+
+    task rememberContext {
+        response = think("Acknowledge user and role")
+        return response
+    }
+
+    print("Memory Agent output: " + rememberContext.result)
+}
+
+agent StatelessAgent (
+    model = GPT,
+    memory = null
+) {
+    context ephemeralKey = "temp_123"
+
+    task runWithoutMemory {
+        response = think("Execute stateless computation")
+        return response
+    }
+
+    print("Stateless Agent output: " + runWithoutMemory.result)
+}
+
+main {
+    print("Testing Agent Memory Retention...")
+    agent MemoryAgent
+    print("Testing Stateless Agent (memory = null)...")
+    agent StatelessAgent
+}

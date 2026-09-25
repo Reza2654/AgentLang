@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentLang.AST/AgentLang.AST.csproj" />
+    <Project Path="src/AgentLang.Cli/AgentLang.Cli.csproj" />
+    <Project Path="src/AgentLang.Lexer/AgentLang.Lexer.csproj" />
+    <Project Path="src/AgentLang.Models/AgentLang.Models.csproj" />
+    <Project Path="src/AgentLang.Parser/AgentLang.Parser.csproj" />
+    <Project Path="src/AgentLang.Runtime/AgentLang.Runtime.csproj" />
+    <Project Path="src/AgentLang.Security/AgentLang.Security.csproj" />
+    <Project Path="src/AgentLang.Semantic/AgentLang.Semantic.csproj" />
+    <Project Path="src/AgentLang.Tools/AgentLang.Tools.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj" />
+    <Project Path="tests/AgentLang.Tests/AgentLang.Tests.csproj" />
+  </Folder>
+</Solution>
