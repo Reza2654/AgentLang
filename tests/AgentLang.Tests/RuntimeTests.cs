@@ -18,7 +18,8 @@ public class RuntimeTests
         var output = new StringWriter();
         var approver = new AutoApprovalProvider(true);
         var sec = new SecurityEngine(approver);
-        var tools = new ToolRegistry(sec);
+        var searchRegistry = new Tools.Search.SearchProviderRegistry(allowMockFallback: true);
+        var tools = new ToolRegistry(sec, searchRegistry);
         var models = new ModelRegistry();
         var runtime = new AgentLangRuntime(
             modelRegistry: models,

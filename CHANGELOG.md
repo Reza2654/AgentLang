@@ -5,7 +5,26 @@ All notable changes to **AgentLang** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-25
+
+### Added
+- **Search API Integration**: Pluggable Web Search API provider architecture (`ISearchProvider`) supporting real-world AI search engines:
+  - **Tavily AI Search**: (`TAVILY_API_KEY`) Tailored for LLM and agent research.
+  - **Google Serper**: (`SERPER_API_KEY`) Live Google search results in structured format.
+  - **Brave Search**: (`BRAVE_API_KEY`) Independent privacy-focused web search.
+  - **Generic Search**: (`SEARCH_API_KEY`) Universal search key integration.
+- **Search API Key Enforcement**: Strict runtime validation requiring an API key for live search queries (`browser.search`, `research(...)`). Fails fast with `AgentLangToolException` (`AGT500`) with actionable setup instructions if no search credentials exist.
+- **Mock Search Provider**: Built-in deterministic `MockSearchProvider` for offline development, local CI/CD pipelines, and zero-cost testing (`AGENTLANG_MOCK_SEARCH=1`).
+- **Automatic `.env` File Loader**: Automatic discovery and parsing of `.env` configuration files in `agent run`, `agent repl`, and `agent check`.
+- **Diagnostics Extension**: `agent doctor` now actively inspects and reports Web Search API provider configuration and credential status.
+- **New Example**: Added `examples/search-api/main.agent` demonstrating live search and API integration.
+
+### Changed
+- CLI version upgraded to `0.2.1`.
+- `BrowserTool` now delegates search operations to `SearchProviderRegistry` and performs live HTTP content retrieval on `browser.fetch`.
+
 ## [0.2.0] - 2026-09-25
+
 
 ### Added
 - **First-Class Functions**: Define reusable functions with `function name(params) { ... }`, return values (`return expr`), lexical scoping/closures, and recursion call stack depth guard (limit: 256 calls, error: `AGT301`).

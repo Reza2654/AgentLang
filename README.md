@@ -1,11 +1,11 @@
-# AgentLang — v0.2.0
+# AgentLang — v0.2.1
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![Build and Test](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Version](https://img.shields.io/badge/Release-v0.2.0-blue)](https://github.com/Reza2654/AgentLang/releases)
+[![Version](https://img.shields.io/badge/Release-v0.2.1-blue)](https://github.com/Reza2654/AgentLang/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -313,6 +313,7 @@ Explore the complete collection of 16 runnable examples in [`examples/`](example
 | [`model-overrides`](examples/model-overrides/main.agent) | **v0.2.0** | Model aliases and task-level model overrides |
 | [`persistent-memory`](examples/persistent-memory/main.agent) | **v0.2.0** | Persistent memory retention across agent runs |
 | [`structured-errors`](examples/structured-errors/main.agent) | **v0.2.0** | Error handling with typed `AGTxxx` error codes |
+| [`search-api`](examples/search-api/main.agent) | **v0.2.1** | Web Search API integration and API key enforcement |
 | [`simple-researcher`](examples/simple-researcher/main.agent) | Workflows | Research agent with tools, models, and `.result` |
 | [`permissions`](examples/permissions/main.agent) | Security | Zero-trust permission policies (`allow`, `ask`, `cannot`) |
 | [`tools`](examples/tools/main.agent) | Tools | Built-in tool integration (`browser`, `filesystem`) |
@@ -325,16 +326,17 @@ Explore the complete collection of 16 runnable examples in [`examples/`](example
 
 Run any example directly:
 ```bash
-dotnet run --project src/AgentLang.Cli -- run examples/functions/main.agent
+dotnet run --project src/AgentLang.Cli -- run examples/search-api/main.agent
 ```
 
 ---
 
-## 7. Model Providers & Zero-Cost Offline Testing
+## 7. Model & Search API Providers
 
-AgentLang includes a deterministic **`MockModelProvider`** enabled by default. **No paid API keys are required to build, test, or run examples.**
+AgentLang includes deterministic offline providers by default: **`MockModelProvider`** and **`MockSearchProvider`**. **No paid API keys are required to build, test, or run offline examples.**
 
-To connect real AI models, configure standard environment variables:
+### AI Model Providers
+Configure standard environment variables (or `.env` file) for live LLMs:
 
 | Provider | Environment Variable | Supported Models |
 | :--- | :--- | :--- |
@@ -342,25 +344,34 @@ To connect real AI models, configure standard environment variables:
 | **Google Gemini** | `GEMINI_API_KEY` | `gemini-2.5-flash`, `gemini-1.5-pro` |
 | **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet`, `claude-3-haiku` |
 
+### Web Search API Providers (v0.2.1)
+Whenever an agent executes `research(...)` or `browser.search(...)`, an API key is required for real web search:
+
+| Search Provider | Environment Variable | Description |
+| :--- | :--- | :--- |
+| **Tavily AI Search** | `TAVILY_API_KEY` | Built specifically for AI agents & LLMs (clean snippets & markdown) |
+| **Google Serper** | `SERPER_API_KEY` | Real-time structured Google search results |
+| **Brave Search** | `BRAVE_API_KEY` | Privacy-preserving independent web search API |
+| **Generic Search** | `SEARCH_API_KEY` | Generic search key fallback |
+| **Mock Search** | `AGENTLANG_MOCK_SEARCH=1` | Deterministic offline search for automated testing and CI |
+
+If an agent attempts live web search without an API key, AgentLang throws an `AgentLangToolException` (`AGT500`) with clear instructions.
+
 ---
 
 ## 8. Current Status & Roadmap
 
-AgentLang is currently in **v0.2.0**.
+AgentLang is currently in **v0.2.1**.
 
-### Completed in v0.2.0:
-- [x] First-Class Functions (`function name(...) { ... }`), closures, return statements, recursion guard
-- [x] Extended Type System (11 types: `string`, `number`, `boolean`, `list`, `map`, `null`, `agent`, `task`, `operation`, `function`, `tool`)
-- [x] Index Access (`items[0]`, `map["k"]`, `str[0]`, `agent["inbox"]`) and `type(val)` function
-- [x] Model System 2.0 (Model aliases `model fast = mock`, task-level model overrides `task t (model = fast)`)
-- [x] First-Class Custom Tools defined directly in `.agent` scripts with parameter validation
-- [x] Agent Communication (`send expr to Agent [tag expr]` and `Agent.inbox`)
-- [x] Persistent Memory Store (`IPersistentMemoryStore`, `LocalFileMemoryStore`, `InMemoryMemoryStore`)
-- [x] Rich Operation Telemetry (`status`, `result`, `model`, `duration`, `error`, `type`, `toolCalls`)
-- [x] Structured Error Hierarchy with machine-readable `AGTxxx` codes
-- [x] New CLI Developer Commands (`agent repl`, `agent check`, `agent format`, `agent test`)
-- [x] 16 Executable Examples and 53 automated unit/integration tests with 100% pass rate
-- [x] 100% Backward Compatibility with v0.1.0-alpha
+### Completed in v0.2.1:
+- [x] Pluggable Web Search API provider architecture (`ISearchProvider`)
+- [x] Real-world search providers: Tavily, Google Serper, Brave Search, Generic
+- [x] Strict API key validation and enforcement for web search queries (`AGT500`)
+- [x] Deterministic offline `MockSearchProvider` for zero-cost testing
+- [x] Automatic `.env` configuration file loader in CLI commands
+- [x] Search API provider status diagnostics in `agent doctor`
+- [x] 17 Executable Examples and 61 automated unit/integration tests with 100% pass rate
+- [x] 100% Backward Compatibility
 
 ### Roadmap for v0.3.0:
 - [ ] Native streaming responses for interactive CLI sessions

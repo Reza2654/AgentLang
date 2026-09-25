@@ -78,7 +78,16 @@ public sealed class BrowserTool : ITool
         "browser.fetch"
     ];
 
-    public Task<ToolResult> ExecuteAsync(string capability, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
+    private readonly Search.SearchProviderRegistry _searchRegistry;
+    private readonly HttpClient _httpClient;
+
+    public BrowserTool(Search.SearchProviderRegistry? searchRegistry = null, HttpClient? httpClient = null)
+    {
+        _searchRegistry = searchRegistry ?? new Search.SearchProviderRegistry();
+        _httpClient = httpClient ?? new HttpClient();
+    }
+
+    public async Task<ToolResult> ExecuteAsync(string capability, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
     {
         string cap = capability.ToLowerInvariant();
         string query = arguments.TryGetValue("query", out var q) ? q?.ToString() ?? "" :
@@ -86,18 +95,41 @@ public sealed class BrowserTool : ITool
 
         if (cap == "browser.search")
         {
-            // Deterministic response for mock/offline, extensible for real query
-            string result = $"Search results for '{query}': Found 3 authoritative sources confirming AgentLang native execution.";
-            return Task.FromResult(ToolResult.Ok(result));
+            if (string.IsNullOrWhiteSpace(query))
+                return ToolResult.Fail("Search query is empty");
+
+            string? apiKey = arguments.TryGetValue("apiKey", out var ak) ? ak?.ToString() : null;
+            string? provider = arguments.TryGetValue("provider", out var pv) ? pv?.ToString() : null;
+            int maxResults = arguments.TryGetValue("maxResults", out var mr) && int.TryParse(mr?.ToString(), out var mrInt) ? mrInt : 5;
+
+            try
+            {
+                var response = await _searchRegistry.SearchAsync(query, maxResults, provider, apiKey, ct);
+                return ToolResult.Ok(response.FormatMarkdown());
+            }
+            catch (Exception ex)
+            {
+                return ToolResult.Fail(ex.Message);
+            }
         }
 
         if (cap == "browser.fetch")
         {
-            string html = $"Fetched content from '{query}': <!DOCTYPE html><html><body><h1>AgentLang</h1></body></html>";
-            return Task.FromResult(ToolResult.Ok(html));
+            if (string.IsNullOrWhiteSpace(query))
+                return ToolResult.Fail("URL is empty for browser.fetch");
+
+            try
+            {
+                string html = await _httpClient.GetStringAsync(query, ct);
+                return ToolResult.Ok(html);
+            }
+            catch (Exception ex)
+            {
+                return ToolResult.Fail($"Failed to fetch content from '{query}': {ex.Message}");
+            }
         }
 
-        return Task.FromResult(ToolResult.Fail($"Unknown browser capability: '{capability}'"));
+        return ToolResult.Fail($"Unknown browser capability: '{capability}'");
     }
 }
 

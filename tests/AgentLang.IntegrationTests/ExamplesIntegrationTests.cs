@@ -39,7 +39,8 @@ public class ExamplesIntegrationTests
         var outputWriter = new StringWriter();
         var approver = new AutoApprovalProvider(true);
         var secEngine = new SecurityEngine(approver);
-        var toolRegistry = new ToolRegistry(secEngine);
+        var searchRegistry = new Tools.Search.SearchProviderRegistry(allowMockFallback: true);
+        var toolRegistry = new ToolRegistry(secEngine, searchRegistry);
         var modelRegistry = new ModelRegistry();
 
         var runtime = new AgentLangRuntime(
@@ -188,5 +189,14 @@ public class ExamplesIntegrationTests
         Assert.Contains("[CAUGHT ERROR]: [AGT303] Division by zero", output);
         Assert.Contains("[CAUGHT BOUNDS ERROR]: [AGT302]", output);
         Assert.Contains("Status:   completed", output);
+    }
+
+    [Fact]
+    public async Task RunsSearchApiExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/search-api/main.agent");
+        Assert.Contains("=== SearchAgent Results ===", output);
+        Assert.Contains("Web search completed successfully", output);
+        Assert.True(runtime.AgentInstances.ContainsKey("SearchAgent"));
     }
 }

@@ -98,6 +98,31 @@ public static class DoctorCommand
             warnings++;
         }
 
+        // 6. Search API Providers Check
+        string? tavilyKey = Environment.GetEnvironmentVariable("TAVILY_API_KEY");
+        string? serperKey = Environment.GetEnvironmentVariable("SERPER_API_KEY");
+        string? braveKey = Environment.GetEnvironmentVariable("BRAVE_API_KEY");
+        string? generalSearchKey = Environment.GetEnvironmentVariable("SEARCH_API_KEY");
+
+        bool hasSearchKey = !string.IsNullOrWhiteSpace(tavilyKey) ||
+                            !string.IsNullOrWhiteSpace(serperKey) ||
+                            !string.IsNullOrWhiteSpace(braveKey) ||
+                            !string.IsNullOrWhiteSpace(generalSearchKey);
+
+        if (hasSearchKey)
+        {
+            string configuredProvider = !string.IsNullOrWhiteSpace(tavilyKey) ? "Tavily (TAVILY_API_KEY)" :
+                                        !string.IsNullOrWhiteSpace(serperKey) ? "Serper (SERPER_API_KEY)" :
+                                        !string.IsNullOrWhiteSpace(braveKey) ? "Brave (BRAVE_API_KEY)" :
+                                        "Generic (SEARCH_API_KEY)";
+            PrintStatus(true, "Web Search API", $"Active provider: {configuredProvider}");
+        }
+        else
+        {
+            PrintInfo("Web Search API", "No Search API key set (Set TAVILY_API_KEY, SERPER_API_KEY, BRAVE_API_KEY, or SEARCH_API_KEY for live search)");
+            warnings++;
+        }
+
         Console.WriteLine();
         if (errors == 0)
         {

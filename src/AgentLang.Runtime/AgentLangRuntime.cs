@@ -716,16 +716,43 @@ public sealed class AgentLangRuntime
 
         if (aiOp.OperationName.Equals("research", StringComparison.OrdinalIgnoreCase))
         {
+            string? searchApiKey = null;
+            string? searchProvider = null;
+            if (aiOp.Arguments.Count > 1)
+            {
+                var optArg = await EvaluateExpressionAsync(aiOp.Arguments[1], scope, ct);
+                if (optArg is IDictionary<string, object?> optMap)
+                {
+                    if (optMap.TryGetValue("apiKey", out var ak)) searchApiKey = ak?.ToString();
+                    if (optMap.TryGetValue("provider", out var pv)) searchProvider = pv?.ToString();
+                }
+                else if (optArg != null)
+                {
+                    searchApiKey = optArg.ToString();
+                }
+            }
+
+            var searchArgs = new Dictionary<string, object?> { { "query", promptArg } };
+            if (!string.IsNullOrWhiteSpace(searchApiKey))
+                searchArgs["apiKey"] = searchApiKey;
+            if (!string.IsNullOrWhiteSpace(searchProvider))
+                searchArgs["provider"] = searchProvider;
+
             // Execute research: authorize and perform browser search if needed
             string? policy = CurrentAgent?.PermissionPolicy;
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
                 CurrentAgent?.PermissionPolicy,
                 "browser.search",
-                new Dictionary<string, object?> { { "query", promptArg } },
+                searchArgs,
                 ct);
 
-            string searchData = toolRes.Success ? toolRes.Output?.ToString() ?? "" : "";
+            if (!toolRes.Success)
+            {
+                throw new AgentLangToolException(toolRes.Error ?? "Web search failed", errorCode: "AGT500");
+            }
+
+            string searchData = toolRes.Output?.ToString() ?? "";
             var promptWithTool = $"{promptArg}\nContext from search: {searchData}";
             var response = await provider.GenerateAsync(request with { Prompt = promptWithTool }, ct);
 

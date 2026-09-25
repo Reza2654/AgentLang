@@ -1,0 +1,38 @@
+// AgentLang v0.2.1: Search API & API Key Integration
+
+permission WebSearchPolicy {
+    allow browser.search
+    allow browser.fetch
+    cannot terminal
+}
+
+agent SearchAgent (
+    model = mock,
+    permission = WebSearchPolicy,
+    tools = [browser]
+) {
+    context query = "AgentLang native autonomous AI programming language"
+
+    task searchWeb {
+        // In v0.2.1, browser.search uses real Search APIs (Tavily, Serper, Brave)
+        // when TAVILY_API_KEY, SERPER_API_KEY, BRAVE_API_KEY, or SEARCH_API_KEY is set.
+        // For offline testing or CI, AGENTLANG_MOCK_SEARCH=1 provides mock data.
+        results = research(query)
+        summary = think("Summarize verified search results: " + results.result)
+        return summary
+    }
+
+    print("=== SearchAgent Results ===")
+    print(searchWeb.result)
+    print("Search status: " + searchWeb.status)
+}
+
+main {
+    print("Executing Search API workflow...")
+    try {
+        agent SearchAgent
+        print("✓ Web search completed successfully.")
+    } catch err {
+        print("Search caught exception: " + err)
+    }
+}

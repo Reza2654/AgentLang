@@ -8,10 +8,12 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.2.0";
+    public const string Version = "0.2.1";
 
     public static async Task<int> Main(string[] args)
     {
+        EnvLoader.Load();
+
         if (args.Length == 0 || args[0] is "--help" or "-h" or "help")
         {
             PrintUsage();

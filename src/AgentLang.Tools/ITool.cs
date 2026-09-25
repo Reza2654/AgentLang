@@ -22,14 +22,18 @@ public sealed class ToolRegistry
 {
     private readonly Dictionary<string, ITool> _tools = new(StringComparer.OrdinalIgnoreCase);
     private readonly SecurityEngine _securityEngine;
+    private readonly Search.SearchProviderRegistry _searchRegistry;
 
-    public ToolRegistry(SecurityEngine? securityEngine = null)
+    public Search.SearchProviderRegistry SearchRegistry => _searchRegistry;
+
+    public ToolRegistry(SecurityEngine? securityEngine = null, Search.SearchProviderRegistry? searchRegistry = null)
     {
         _securityEngine = securityEngine ?? new SecurityEngine();
+        _searchRegistry = searchRegistry ?? new Search.SearchProviderRegistry();
 
         // Register default tools
         RegisterTool(new FilesystemTool());
-        RegisterTool(new BrowserTool());
+        RegisterTool(new BrowserTool(_searchRegistry));
         RegisterTool(new TerminalTool());
         RegisterTool(new HttpTool());
         RegisterTool(new CalculatorTool());
