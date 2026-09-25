@@ -755,10 +755,11 @@ public sealed class AgentLangRuntime
             string searchData = toolRes.Output?.ToString() ?? "";
             var promptWithTool = $"{promptArg}\nContext from search: {searchData}";
             var response = await provider.GenerateAsync(request with { Prompt = promptWithTool }, ct);
+            string finalContent = (provider is MockModelProvider) ? searchData : response.Content;
 
             var opVal = OperationValue.Succeeded(
                 "research",
-                response.Content,
+                finalContent,
                 provider.ProviderId,
                 response.Latency,
                 ["browser.search"]);
@@ -838,6 +839,44 @@ public sealed class AgentLangRuntime
             (aiName.Name.Equals("think", StringComparison.OrdinalIgnoreCase) || aiName.Name.Equals("research", StringComparison.OrdinalIgnoreCase)))
         {
             return await ExecuteAiOperationAsync(new AiOperationExpressionNode(aiName.Name, call.Arguments, call.Span), scope, ct);
+        }
+
+        // Direct built-in tool invocation by member access, e.g. browser.search(...) or filesystem.read(...)
+        if (call.Callee is MemberAccessExpressionNode toolMember &&
+            toolMember.Target is IdentifierExpressionNode targetToolId &&
+            _toolRegistry.GetTool(targetToolId.Name) != null)
+        {
+            string toolName = targetToolId.Name;
+            string capability = $"{toolName}.{toolMember.MemberName}";
+            var argsDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            if (call.Arguments.Count > 0)
+            {
+                var firstArg = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                if (firstArg is IDictionary<string, object?> mapArg)
+                {
+                    foreach (var kv in mapArg) argsDict[kv.Key] = kv.Value;
+                }
+                else
+                {
+                    argsDict["query"] = firstArg;
+                    argsDict["path"] = firstArg;
+                    argsDict["command"] = firstArg;
+                    argsDict["url"] = firstArg;
+                    argsDict["expr"] = firstArg;
+                }
+            }
+
+            var toolRes = await _toolRegistry.InvokeAsync(
+                CurrentAgent?.Name ?? "agent",
+                CurrentAgent?.PermissionPolicy,
+                capability,
+                argsDict,
+                ct);
+
+            if (!toolRes.Success)
+                throw new AgentLangToolException(toolRes.Error ?? $"Tool '{capability}' failed", errorCode: "AGT500");
+
+            return toolRes.Output;
         }
 
         // Resolving function or tool by callee
