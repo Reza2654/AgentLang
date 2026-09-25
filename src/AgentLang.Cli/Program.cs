@@ -8,7 +8,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.1.0-alpha";
+    public const string Version = "0.2.0";
 
     public static async Task<int> Main(string[] args)
     {
@@ -29,6 +29,10 @@ public static class Program
         {
             return command switch
             {
+                "repl" => await ReplCommand.RunAsync(),
+                "check" => CheckCommand.Run(args),
+                "format" => FormatCommand.Run(args),
+                "test" => await TestCommand.RunAsync(args),
                 "doctor" => await DoctorCommand.RunAsync(),
                 "new" => HandleNew(args),
                 "run" => await HandleRunAsync(args),
@@ -58,9 +62,13 @@ public static class Program
 
         Console.WriteLine("Usage: agent <command> [options] [arguments]\n");
         Console.WriteLine("Commands:");
-        Console.WriteLine("  new <name>            Scaffold a new AgentLang project");
+        Console.WriteLine("  repl                  Start interactive REPL shell");
         Console.WriteLine("  run <file> [flags]    Execute an AgentLang program (.agent)");
+        Console.WriteLine("  check [target]        Fast syntax and semantic static checker");
+        Console.WriteLine("  format [target] [-w]  Format AgentLang source code");
+        Console.WriteLine("  test [target]         Run AgentLang test suites");
         Console.WriteLine("  build <file>          Parse and semantically validate an AgentLang program");
+        Console.WriteLine("  new <name>            Scaffold a new AgentLang project");
         Console.WriteLine("  doctor                Diagnose environment, runtime, models, tools, and security");
         Console.WriteLine("  install <pkg> [ver]   Install a package dependency");
         Console.WriteLine("  remove <pkg>          Remove a package dependency");
@@ -70,6 +78,9 @@ public static class Program
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
         Console.WriteLine("  --yes, -y             Automatically approve operations requiring human approval");
+        Console.WriteLine("Flags for 'format':");
+        Console.WriteLine("  --write, -w           Write formatted output directly to files");
+        Console.WriteLine("  --check, -c           Check if files are formatted without modifying them");
     }
 
     private static int HandleNew(string[] args)

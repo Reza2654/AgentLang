@@ -1,0 +1,46 @@
+// AgentLang v0.2.0: First-Class Functions and Extended Types Example
+
+function formatGreeting(name, role) {
+    return "Hello, " + name + " [" + role + "]!"
+}
+
+function calculateScore(factors) {
+    total = 0
+    for factor in factors {
+        total = total + factor
+    }
+    return total
+}
+
+function factorial(n) {
+    if (n <= 1) {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+main {
+    print("=== AgentLang v0.2.0 Functions & Types Demo ===")
+    
+    // Test function calls
+    greeting = formatGreeting("Alice", "Lead Researcher")
+    print(greeting)
+
+    // Test list and types
+    weights = [10, 25, 45, 20]
+    print("Factors count: " + weights.length)
+    score = calculateScore(weights)
+    print("Calculated total score: " + score)
+    print("Type of score: " + type(score))
+
+    // Test map literal and indexing
+    agentConfig = { name: "Analyst", tier: "pro", active: true }
+    print("Agent config tier: " + agentConfig["tier"])
+    print("Type of agentConfig: " + type(agentConfig))
+
+    // Test recursion
+    fact5 = factorial(5)
+    print("Factorial of 5: " + fact5)
+
+    print("✓ Functions and type system test completed successfully.")
+}

@@ -1,0 +1,27 @@
+// AgentLang v0.2.0: First-Class Custom Tools Example
+
+tool sentiment_analyzer {
+    description = "Analyzes sentiment of text"
+    input text: string
+    input scale: number
+    execute {
+        print("Analyzing sentiment with scale " + scale)
+        return "Positive (score: " + scale + ") for text: " + text
+    }
+}
+
+agent ReviewAgent (model = mock) {
+    context input_text = "AgentLang makes building autonomous agents clean and elegant!"
+
+    task review {
+        print("Running review task in ReviewAgent...")
+        result = sentiment_analyzer(input_text, 95)
+        print("Tool Output: " + result)
+    }
+}
+
+main {
+    print("=== AgentLang v0.2.0 Custom Tools Demo ===")
+    agent ReviewAgent
+    print("✓ Custom tool execution completed successfully.")
+}

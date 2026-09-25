@@ -12,7 +12,10 @@ public enum SymbolKind
     Tool,
     Event,
     Variable,
-    Operation
+    Operation,
+    Function,
+    ModelAlias,
+    CustomTool
 }
 
 public sealed record Symbol(

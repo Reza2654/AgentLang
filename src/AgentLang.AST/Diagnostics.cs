@@ -14,6 +14,8 @@ public sealed record Diagnostic(
     SourceSpan Span,
     string? Suggestion = null)
 {
+    public string Code => Id;
+
     public override string ToString() =>
         $"{Span}: {Severity.ToString().ToLowerInvariant()} {Id}: {Message}" +
         (Suggestion != null ? $" (Suggestion: {Suggestion})" : "");
@@ -106,13 +108,16 @@ public sealed class SourceText
     }
 }
 
-public sealed class DiagnosticBag : System.Collections.IEnumerable
+public sealed class DiagnosticBag : IEnumerable<Diagnostic>
 {
     private readonly List<Diagnostic> _diagnostics = [];
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
     public bool HasErrors => _diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
     public bool HasWarnings => _diagnostics.Any(d => d.Severity == DiagnosticSeverity.Warning);
+
+    public IEnumerable<Diagnostic> Errors => _diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error);
+    public IEnumerable<Diagnostic> Warnings => _diagnostics.Where(d => d.Severity == DiagnosticSeverity.Warning);
 
     public void Report(string id, string message, DiagnosticSeverity severity, SourceSpan span, string? suggestion = null)
     {
@@ -128,5 +133,6 @@ public sealed class DiagnosticBag : System.Collections.IEnumerable
     public void AddRange(IEnumerable<Diagnostic> diagnostics) =>
         _diagnostics.AddRange(diagnostics);
 
-    public System.Collections.IEnumerator GetEnumerator() => _diagnostics.GetEnumerator();
+    public IEnumerator<Diagnostic> GetEnumerator() => _diagnostics.GetEnumerator();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _diagnostics.GetEnumerator();
 }

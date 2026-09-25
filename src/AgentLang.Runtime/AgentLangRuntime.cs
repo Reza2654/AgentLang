@@ -1,6 +1,8 @@
 using System.Globalization;
 using AgentLang.AST;
+using AgentLang.Errors;
 using AgentLang.Models;
+using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
 using AgentLang.Security;
 using AgentLang.Tools;
@@ -19,6 +21,7 @@ public sealed class AgentLangRuntime
     private readonly ToolRegistry _toolRegistry;
     private readonly SecurityEngine _securityEngine;
     private readonly EventBus _eventBus;
+    private readonly IPersistentMemoryStore _memoryStore;
     private readonly TextWriter _output;
     private readonly TextReader _input;
 
@@ -26,23 +29,29 @@ public sealed class AgentLangRuntime
     private readonly Dictionary<string, MultiAgentDeclarationNode> _multiAgentDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PermissionDeclarationNode> _permissionDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ToolDeclarationNode> _toolDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CustomToolDeclarationNode> _customToolDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EventDeclarationNode> _eventDefs = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, AgentValue> _agentInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly RuntimeScope _globalScope = new("global");
+    private int _callDepth = 0;
+    private const int MaxCallDepth = 256;
 
     public AgentValue? CurrentAgent { get; private set; }
     public EventBus EventBus => _eventBus;
     public ModelRegistry ModelRegistry => _modelRegistry;
     public ToolRegistry ToolRegistry => _toolRegistry;
     public SecurityEngine SecurityEngine => _securityEngine;
+    public IPersistentMemoryStore MemoryStore => _memoryStore;
     public IReadOnlyDictionary<string, AgentValue> AgentInstances => _agentInstances;
+    public RuntimeScope GlobalScope => _globalScope;
 
     public AgentLangRuntime(
         ModelRegistry? modelRegistry = null,
         ToolRegistry? toolRegistry = null,
         SecurityEngine? securityEngine = null,
         EventBus? eventBus = null,
+        IPersistentMemoryStore? memoryStore = null,
         TextWriter? output = null,
         TextReader? input = null)
     {
@@ -50,6 +59,7 @@ public sealed class AgentLangRuntime
         _modelRegistry = modelRegistry ?? new ModelRegistry();
         _toolRegistry = toolRegistry ?? new ToolRegistry(_securityEngine);
         _eventBus = eventBus ?? new EventBus();
+        _memoryStore = memoryStore ?? new LocalFileMemoryStore();
         _output = output ?? Console.Out;
         _input = input ?? Console.In;
     }
@@ -73,6 +83,42 @@ public sealed class AgentLangRuntime
 
                 case ToolDeclarationNode tool:
                     _toolDefs[tool.Name] = tool;
+                    break;
+
+                case CustomToolDeclarationNode ctool:
+                    _customToolDefs[ctool.Name] = ctool;
+                    var customToolInstance = new CustomAgentLangTool(ctool, async (args, cToken) =>
+                    {
+                        var toolScope = new RuntimeScope($"tool:{ctool.Name}", _globalScope);
+                        foreach (var inputParam in ctool.Inputs)
+                        {
+                            args.TryGetValue(inputParam.Name, out var paramVal);
+                            toolScope.SetLocal(inputParam.Name, paramVal);
+                        }
+                        foreach (var stmt in ctool.Body)
+                        {
+                            try
+                            {
+                                await ExecuteStatementAsync(stmt, toolScope, cToken);
+                            }
+                            catch (ReturnException ret)
+                            {
+                                return ret.Value;
+                            }
+                        }
+                        return null;
+                    });
+                    _toolRegistry.RegisterTool(customToolInstance);
+                    _globalScope.SetLocal(ctool.Name, customToolInstance);
+                    break;
+
+                case ModelDeclarationNode mdl:
+                    _modelRegistry.RegisterAlias(mdl.Alias, mdl.TargetModel);
+                    break;
+
+                case FunctionDeclarationNode fn:
+                    var fnVal = new FunctionValue(fn.Name, fn.Parameters, fn.Body, _globalScope);
+                    _globalScope.SetLocal(fn.Name, fnVal);
                     break;
 
                 case AgentDeclarationNode agent:
@@ -136,7 +182,7 @@ public sealed class AgentLangRuntime
     {
         if (!_agentDefs.TryGetValue(agentName, out var agentDef))
         {
-            throw new InvalidOperationException($"Agent '{agentName}' was not defined.");
+            throw new AgentLangRuntimeException($"Agent '{agentName}' was not defined.", errorCode: "AGT304");
         }
 
         var agentInstance = _agentInstances.TryGetValue(agentName, out var existing)
@@ -170,6 +216,28 @@ public sealed class AgentLangRuntime
                 }
             }
 
+            // Load persistent memory if enabled
+            if (agentInstance.MemoryEnabled)
+            {
+                var persisted = await _memoryStore.LoadMemoryAsync(agentName, ct);
+                foreach (var entry in persisted)
+                {
+                    if (!agentInstance.Memory.Contains(entry))
+                        agentInstance.Memory.Add(entry);
+                }
+            }
+
+            // Register agent-scoped functions first
+            foreach (var item in agentDef.Body)
+            {
+                if (item is FunctionDeclarationNode afn)
+                {
+                    var fnVal = new FunctionValue(afn.Name, afn.Parameters, afn.Body, agentScope);
+                    agentInstance.Functions[afn.Name] = fnVal;
+                    agentScope.SetLocal(afn.Name, fnVal);
+                }
+            }
+
             // Execute body items in order
             foreach (var item in agentDef.Body)
             {
@@ -188,10 +256,20 @@ public sealed class AgentLangRuntime
                 {
                     await ExecuteTaskDeclarationAsync(task, agentInstance, agentScope, ct);
                 }
+                else if (item is FunctionDeclarationNode)
+                {
+                    // Already registered
+                }
                 else if (item is StatementNode stmt)
                 {
                     await ExecuteStatementAsync(stmt, agentScope, ct);
                 }
+            }
+
+            // Persist memory if enabled
+            if (agentInstance.MemoryEnabled && agentInstance.Memory.Count > 0)
+            {
+                await _memoryStore.SaveMemoryAsync(agentName, agentInstance.Memory, ct);
             }
 
             return agentInstance;
@@ -213,6 +291,21 @@ public sealed class AgentLangRuntime
         agentScope.SetLocal(taskNode.Name, taskValue);
 
         var taskScope = new RuntimeScope($"task:{taskNode.Name}", agentScope);
+
+        // Check task-level config overrides (e.g. task scan (model = fast))
+        string? taskModel = null;
+        foreach (var cfg in taskNode.Config)
+        {
+            var val = await EvaluateExpressionAsync(cfg.Value, agentScope, ct);
+            if (cfg.Key.Equals("model", StringComparison.OrdinalIgnoreCase))
+            {
+                taskModel = val?.ToString() ?? (cfg.Value is IdentifierExpressionNode idNode ? idNode.Name : null);
+            }
+        }
+        if (taskModel != null)
+        {
+            taskScope.SetLocal("__task_model__", taskModel);
+        }
 
         // Bring context into task scope
         foreach (var (k, v) in agentInstance.Context)
@@ -264,6 +357,32 @@ public sealed class AgentLangRuntime
                 {
                     CurrentAgent.Variables[assign.VariableName] = val;
                 }
+                break;
+
+            case FunctionDeclarationNode fn:
+                var fnVal = new FunctionValue(fn.Name, fn.Parameters, fn.Body, scope);
+                scope.SetLocal(fn.Name, fnVal);
+                if (CurrentAgent != null)
+                {
+                    CurrentAgent.Functions[fn.Name] = fnVal;
+                }
+                break;
+
+            case SendMessageStatementNode sendStmt:
+                var msgContent = await EvaluateExpressionAsync(sendStmt.Message, scope, ct);
+                var tagVal = sendStmt.Tag != null ? await EvaluateExpressionAsync(sendStmt.Tag, scope, ct) : null;
+
+                if (!_agentInstances.TryGetValue(sendStmt.TargetAgent, out var targetAgent))
+                {
+                    targetAgent = new AgentValue(sendStmt.TargetAgent);
+                    _agentInstances[sendStmt.TargetAgent] = targetAgent;
+                }
+
+                var msg = new AgentMessage(msgContent, CurrentAgent?.Name, tagVal);
+                targetAgent.Inbox.Add(msg);
+
+                await _eventBus.PublishAsync($"{sendStmt.TargetAgent}.message", msg);
+                await _eventBus.PublishAsync("agent.message", msg);
                 break;
 
             case ExpressionStatementNode exprStmt:
@@ -420,21 +539,29 @@ public sealed class AgentLangRuntime
                     return "print";
                 if (id.Name.Equals("input", StringComparison.Ordinal))
                     return "input";
+                if (id.Name.Equals("type", StringComparison.Ordinal))
+                    return "type";
 
                 // Check scope
                 if (scope.TryGet(id.Name, out var scopedVal))
                     return scopedVal;
 
-                // Check current agent tasks
+                // Check current agent tasks, functions, context, variables
                 if (CurrentAgent != null)
                 {
                     if (CurrentAgent.Tasks.TryGetValue(id.Name, out var tv))
                         return tv;
+                    if (CurrentAgent.Functions.TryGetValue(id.Name, out var fv))
+                        return fv;
                     if (CurrentAgent.Context.TryGetValue(id.Name, out var cv))
                         return cv;
                     if (CurrentAgent.Variables.TryGetValue(id.Name, out var av))
                         return av;
                 }
+
+                // Check global functions/tools
+                if (_globalScope.TryGet(id.Name, out var gVal))
+                    return gVal;
 
                 // Check other agents
                 if (_agentInstances.TryGetValue(id.Name, out var aInstance))
@@ -462,6 +589,11 @@ public sealed class AgentLangRuntime
             case CallExpressionNode call:
                 return await EvaluateCallAsync(call, scope, ct);
 
+            case IndexAccessExpressionNode idx:
+                var targetObj = await EvaluateExpressionAsync(idx.Target, scope, ct);
+                var indexObj = await EvaluateExpressionAsync(idx.Index, scope, ct);
+                return EvaluateIndexAccess(targetObj, indexObj);
+
             case MemberAccessExpressionNode member:
                 var target = await EvaluateExpressionAsync(member.Target, scope, ct);
                 return ResolveMemberAccess(target, member.MemberName);
@@ -483,6 +615,76 @@ public sealed class AgentLangRuntime
         }
     }
 
+    private static object? EvaluateIndexAccess(object? target, object? index)
+    {
+        if (target == null)
+            return null;
+
+        if (target is IList<object?> list)
+        {
+            int i = Convert.ToInt32(index, CultureInfo.InvariantCulture);
+            if (i < 0) i = list.Count + i;
+            if (i < 0 || i >= list.Count)
+                throw new AgentLangRuntimeException($"Index {i} out of range for list of size {list.Count}", errorCode: "AGT302");
+            return list[i];
+        }
+
+        if (target is System.Collections.IList nonGenList)
+        {
+            int i = Convert.ToInt32(index, CultureInfo.InvariantCulture);
+            if (i < 0) i = nonGenList.Count + i;
+            if (i < 0 || i >= nonGenList.Count)
+                throw new AgentLangRuntimeException($"Index {i} out of range for list of size {nonGenList.Count}", errorCode: "AGT302");
+            return nonGenList[i];
+        }
+
+        if (target is IDictionary<string, object?> dict)
+        {
+            string key = index?.ToString() ?? string.Empty;
+            return dict.TryGetValue(key, out var val) ? val : null;
+        }
+
+        if (target is string str)
+        {
+            int i = Convert.ToInt32(index, CultureInfo.InvariantCulture);
+            if (i < 0) i = str.Length + i;
+            if (i < 0 || i >= str.Length)
+                throw new AgentLangRuntimeException($"Index {i} out of range for string of length {str.Length}", errorCode: "AGT302");
+            return str[i].ToString();
+        }
+
+        if (target is AgentValue av)
+        {
+            string key = index?.ToString() ?? string.Empty;
+            if (key.Equals("inbox", StringComparison.OrdinalIgnoreCase))
+                return av.Inbox;
+            if (av.Context.TryGetValue(key, out var cv))
+                return cv;
+            if (av.Variables.TryGetValue(key, out var vv))
+                return vv;
+            if (av.Tasks.TryGetValue(key, out var tv))
+                return tv;
+        }
+
+        return null;
+    }
+
+    public static string GetTypeName(object? val) => val switch
+    {
+        null => "null",
+        bool => "boolean",
+        byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => "number",
+        string => "string",
+        IList<object?> or System.Collections.IList => "list",
+        IDictionary<string, object?> or System.Collections.IDictionary => "map",
+        AgentValue => "agent",
+        TaskValue => "task",
+        OperationValue => "operation",
+        FunctionValue => "function",
+        CustomAgentLangTool or ITool => "tool",
+        _ => val.GetType().Name.ToLowerInvariant()
+    };
+
     private async Task<OperationValue> ExecuteAiOperationAsync(
         AiOperationExpressionNode aiOp,
         RuntimeScope scope,
@@ -495,7 +697,12 @@ public sealed class AgentLangRuntime
             promptArg = evaluated?.ToString() ?? string.Empty;
         }
 
-        string modelName = CurrentAgent?.Model ?? "mock";
+        // Check for task-level model override first, then agent model, then default "mock"
+        string modelName = scope.TryGet("__task_model__", out var tm) && tm != null
+            ? tm.ToString()!
+            : (CurrentAgent?.Model ?? "mock");
+
+        // ModelRegistry.Resolve automatically resolves aliases (e.g. fast -> gemini.flash)
         var provider = _modelRegistry.Resolve(modelName);
 
         IReadOnlyList<string>? memoryContext = CurrentAgent?.MemoryEnabled == true
@@ -513,7 +720,7 @@ public sealed class AgentLangRuntime
             string? policy = CurrentAgent?.PermissionPolicy;
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
-                policy,
+                CurrentAgent?.PermissionPolicy,
                 "browser.search",
                 new Dictionary<string, object?> { { "query", promptArg } },
                 ct);
@@ -555,6 +762,11 @@ public sealed class AgentLangRuntime
 
     private async Task<object?> EvaluateCallAsync(CallExpressionNode call, RuntimeScope scope, CancellationToken ct)
     {
+        if (_callDepth >= MaxCallDepth)
+        {
+            throw new AgentLangRuntimeException($"Maximum call stack depth of {MaxCallDepth} exceeded (recursion limit)", errorCode: "AGT301");
+        }
+
         if (call.Callee is IdentifierExpressionNode calleeId)
         {
             if (calleeId.Name.Equals("print", StringComparison.OrdinalIgnoreCase))
@@ -581,7 +793,13 @@ public sealed class AgentLangRuntime
                 return await _input.ReadLineAsync(ct) ?? string.Empty;
             }
 
-            // Task invocation by name
+            if (calleeId.Name.Equals("type", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                return GetTypeName(val);
+            }
+
+            // Task invocation by name within current agent
             if (CurrentAgent != null && CurrentAgent.Tasks.TryGetValue(calleeId.Name, out var tv))
             {
                 return tv.Result;
@@ -593,6 +811,80 @@ public sealed class AgentLangRuntime
             (aiName.Name.Equals("think", StringComparison.OrdinalIgnoreCase) || aiName.Name.Equals("research", StringComparison.OrdinalIgnoreCase)))
         {
             return await ExecuteAiOperationAsync(new AiOperationExpressionNode(aiName.Name, call.Arguments, call.Span), scope, ct);
+        }
+
+        // Resolving function or tool by callee
+        object? calleeObj = null;
+        if (call.Callee is IdentifierExpressionNode idNode)
+        {
+            calleeObj = scope.Get(idNode.Name) ??
+                        (CurrentAgent?.Functions.TryGetValue(idNode.Name, out var af) == true ? af : null) ??
+                        _globalScope.Get(idNode.Name);
+        }
+        else
+        {
+            calleeObj = await EvaluateExpressionAsync(call.Callee, scope, ct);
+        }
+
+        if (calleeObj is FunctionValue fn)
+        {
+            if (_callDepth >= MaxCallDepth)
+            {
+                throw new AgentLangRuntimeException($"Maximum call stack depth of {MaxCallDepth} exceeded (recursion limit)", errorCode: "AGT301");
+            }
+
+            _callDepth++;
+            try
+            {
+                if (_callDepth % 16 == 0)
+                {
+                    await Task.Yield();
+                }
+
+                var fnScope = new RuntimeScope($"call:{fn.Name}", fn.Closure);
+                for (int i = 0; i < fn.Parameters.Count; i++)
+                {
+                    object? argVal = i < call.Arguments.Count ? await EvaluateExpressionAsync(call.Arguments[i], scope, ct) : null;
+                    fnScope.SetLocal(fn.Parameters[i], argVal);
+                }
+
+                foreach (var stmt in fn.Body)
+                {
+                    try
+                    {
+                        await ExecuteStatementAsync(stmt, fnScope, ct);
+                    }
+                    catch (ReturnException ret)
+                    {
+                        return ret.Value;
+                    }
+                }
+                return null;
+            }
+            finally
+            {
+                _callDepth--;
+            }
+        }
+
+        if (calleeObj is CustomAgentLangTool customTool)
+        {
+            var argsDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < customTool.Inputs.Count; i++)
+            {
+                var inputParam = customTool.Inputs[i];
+                object? argVal = i < call.Arguments.Count ? await EvaluateExpressionAsync(call.Arguments[i], scope, ct) : null;
+                argsDict[inputParam.Name] = argVal;
+            }
+
+            var toolRes = await _toolRegistry.InvokeAsync(
+                CurrentAgent?.Name ?? "agent",
+                CurrentAgent?.PermissionPolicy,
+                customTool.Name,
+                argsDict,
+                ct);
+
+            return toolRes.Success ? toolRes.Output : throw new AgentLangToolException(toolRes.Error ?? $"Tool '{customTool.Name}' failed");
         }
 
         return null;
@@ -612,6 +904,14 @@ public sealed class AgentLangRuntime
                 return op.Status;
             if (member.Equals("model", StringComparison.OrdinalIgnoreCase))
                 return op.ModelUsed;
+            if (member.Equals("duration", StringComparison.OrdinalIgnoreCase) || member.Equals("latency", StringComparison.OrdinalIgnoreCase))
+                return op.Duration;
+            if (member.Equals("error", StringComparison.OrdinalIgnoreCase))
+                return op.Error;
+            if (member.Equals("type", StringComparison.OrdinalIgnoreCase))
+                return op.Type;
+            if (member.Equals("toolCalls", StringComparison.OrdinalIgnoreCase))
+                return op.ToolCalls;
             return op.Result;
         }
 
@@ -628,6 +928,14 @@ public sealed class AgentLangRuntime
         // If target is AgentValue
         if (target is AgentValue av)
         {
+            if (member.Equals("inbox", StringComparison.OrdinalIgnoreCase))
+                return av.Inbox;
+            if (member.Equals("memory", StringComparison.OrdinalIgnoreCase))
+                return av.Memory;
+            if (member.Equals("model", StringComparison.OrdinalIgnoreCase))
+                return av.Model;
+            if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
+                return av.Name;
             if (av.Tasks.TryGetValue(member, out var childTask))
                 return childTask;
             if (av.Context.TryGetValue(member, out var ctxVal))
@@ -637,10 +945,44 @@ public sealed class AgentLangRuntime
             return null;
         }
 
-        // If target is Dictionary
-        if (target is IDictionary<string, object?> dict && dict.TryGetValue(member, out var dictVal))
+        // If target is AgentMessage
+        if (target is AgentMessage msg)
         {
-            return dictVal;
+            if (member.Equals("content", StringComparison.OrdinalIgnoreCase))
+                return msg.Content;
+            if (member.Equals("sender", StringComparison.OrdinalIgnoreCase))
+                return msg.Sender;
+            if (member.Equals("tag", StringComparison.OrdinalIgnoreCase))
+                return msg.Tag;
+            if (member.Equals("timestamp", StringComparison.OrdinalIgnoreCase))
+                return msg.Timestamp.ToString("o");
+        }
+
+        // If target is Dictionary
+        if (target is IDictionary<string, object?> dict)
+        {
+            if (member.Equals("length", StringComparison.OrdinalIgnoreCase) || member.Equals("count", StringComparison.OrdinalIgnoreCase))
+                return dict.Count;
+            if (member.Equals("keys", StringComparison.OrdinalIgnoreCase))
+                return dict.Keys.ToList();
+            if (member.Equals("values", StringComparison.OrdinalIgnoreCase))
+                return dict.Values.ToList();
+            if (dict.TryGetValue(member, out var dictVal))
+                return dictVal;
+        }
+
+        // If target is IList
+        if (target is System.Collections.IList list)
+        {
+            if (member.Equals("length", StringComparison.OrdinalIgnoreCase) || member.Equals("count", StringComparison.OrdinalIgnoreCase))
+                return list.Count;
+        }
+
+        // If target is string
+        if (target is string str)
+        {
+            if (member.Equals("length", StringComparison.OrdinalIgnoreCase))
+                return str.Length;
         }
 
         return null;
@@ -667,7 +1009,7 @@ public sealed class AgentLangRuntime
             {
                 BinaryOperator.Subtract => l - r,
                 BinaryOperator.Multiply => l * r,
-                BinaryOperator.Divide => r == 0 ? throw new DivideByZeroException() : l / r,
+                BinaryOperator.Divide => r == 0 ? throw new AgentLangRuntimeException("Division by zero", errorCode: "AGT303") : l / r,
                 BinaryOperator.Modulo => l % r,
                 _ => throw new InvalidOperationException()
             };

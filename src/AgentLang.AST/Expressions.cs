@@ -111,3 +111,16 @@ public sealed class AiOperationExpressionNode(string operationName, IReadOnlyLis
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class IndexAccessExpressionNode(
+    ExpressionNode target,
+    ExpressionNode index,
+    SourceSpan span)
+    : ExpressionNode(span)
+{
+    public ExpressionNode Target { get; } = target;
+    public ExpressionNode Index { get; } = index;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}

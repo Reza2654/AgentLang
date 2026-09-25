@@ -45,6 +45,12 @@ public enum TokenType
     Print,
     Input,
     Dependencies,
+    Function,
+    Send,
+    To,
+    Description,
+    Execute,
+    Type,
 
     // Logical Operators
     And,

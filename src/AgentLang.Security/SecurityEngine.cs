@@ -1,14 +1,15 @@
 using AgentLang.AST;
+using AgentLang.Errors;
 
 namespace AgentLang.Security;
 
-public sealed class SecurityException : Exception
+public class SecurityException : AgentLangPermissionException
 {
     public string Capability { get; }
     public string Reason { get; }
 
     public SecurityException(string capability, string reason)
-        : base($"Security violation for '{capability}': {reason}")
+        : base($"Security violation for '{capability}': {reason}", errorCode: "AGT600", helpText: "Check permission block to allow this capability.")
     {
         Capability = capability;
         Reason = reason;

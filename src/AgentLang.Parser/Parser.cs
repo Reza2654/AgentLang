@@ -64,7 +64,9 @@ public sealed class Parser
                 TokenType.Model or TokenType.Memory or TokenType.Tools or
                 TokenType.Context or TokenType.Task or TokenType.Agent or
                 TokenType.Permission or TokenType.Tool or TokenType.Event or
-                TokenType.Main;
+                TokenType.Main or TokenType.Function or TokenType.Send or
+                TokenType.To or TokenType.Description or TokenType.Execute or
+                TokenType.Type;
 
     private string ParseIdentifierName(string? customError = null)
     {
@@ -120,6 +122,14 @@ public sealed class Parser
             {
                 declarations.Add(ParseEventDeclaration());
             }
+            else if (Check(TokenType.Function))
+            {
+                declarations.Add(ParseFunctionDeclaration());
+            }
+            else if (Check(TokenType.Model) && Lookahead.Type != TokenType.OpenBrace)
+            {
+                declarations.Add(ParseModelDeclaration());
+            }
             else if (Check(TokenType.Dependencies))
             {
                 declarations.Add(ParseDependenciesDeclaration());
@@ -141,7 +151,8 @@ public sealed class Parser
         while (!Check(TokenType.EndOfFile))
         {
             if (Check(TokenType.Main) || Check(TokenType.Agent) || Check(TokenType.MultiAgent) ||
-                Check(TokenType.Permission) || Check(TokenType.Tool) || Check(TokenType.Event))
+                Check(TokenType.Permission) || Check(TokenType.Tool) || Check(TokenType.Event) ||
+                Check(TokenType.Function) || Check(TokenType.Model))
             {
                 return;
             }
@@ -198,6 +209,10 @@ public sealed class Parser
             else if (Check(TokenType.Task))
             {
                 body.Add(ParseTaskDeclaration());
+            }
+            else if (Check(TokenType.Function))
+            {
+                body.Add(ParseFunctionDeclaration());
             }
             else
             {
@@ -273,12 +288,68 @@ public sealed class Parser
     {
         var taskToken = Match(TokenType.Task);
         string name = ParseIdentifierName("Expected task name identifier");
-        Match(TokenType.OpenBrace);
 
+        var config = new List<AgentConfigItemNode>();
+        if (Check(TokenType.OpenParen))
+        {
+            Match(TokenType.OpenParen);
+            while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+            {
+                var cfgStart = Current.Span;
+                string key = Current.Text;
+                NextToken();
+                Match(TokenType.Equals);
+                var valExpr = ParseExpression();
+                config.Add(new AgentConfigItemNode(key, valExpr, new SourceSpan(cfgStart.Start, valExpr.Span.End, _source.FilePath)));
+
+                if (Check(TokenType.Comma))
+                    Match(TokenType.Comma);
+                else
+                    break;
+            }
+            Match(TokenType.CloseParen);
+        }
+
+        Match(TokenType.OpenBrace);
         var body = ParseStatementListUntil(TokenType.CloseBrace);
         var closeBrace = Match(TokenType.CloseBrace);
 
-        return new TaskDeclarationNode(name, body, new SourceSpan(taskToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        return new TaskDeclarationNode(name, config, body, new SourceSpan(taskToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private FunctionDeclarationNode ParseFunctionDeclaration()
+    {
+        var fnToken = Match(TokenType.Function);
+        string name = ParseIdentifierName("Expected function name identifier");
+        Match(TokenType.OpenParen);
+
+        var parameters = new List<string>();
+        while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+        {
+            parameters.Add(ParseIdentifierName("Expected parameter name"));
+            if (Check(TokenType.Comma))
+                Match(TokenType.Comma);
+            else
+                break;
+        }
+        Match(TokenType.CloseParen);
+
+        Match(TokenType.OpenBrace);
+        var body = ParseStatementListUntil(TokenType.CloseBrace);
+        var closeBrace = Match(TokenType.CloseBrace);
+
+        return new FunctionDeclarationNode(name, parameters, body, new SourceSpan(fnToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private ModelDeclarationNode ParseModelDeclaration()
+    {
+        var modelToken = Match(TokenType.Model);
+        string alias = ParseIdentifierName("Expected model alias identifier");
+        Match(TokenType.Equals);
+        string target = ReadCapabilityPath();
+        MatchOptional(TokenType.Semicolon, out _);
+
+        return new ModelDeclarationNode(alias, target, new SourceSpan(modelToken.Span.Start, Current.Span.End, _source.FilePath));
     }
 
     private PermissionDeclarationNode ParsePermissionDeclaration()
@@ -344,26 +415,73 @@ public sealed class Parser
         return string.Join(".", parts);
     }
 
-    private ToolDeclarationNode ParseToolDeclaration()
+    private DeclarationNode ParseToolDeclaration()
     {
         var toolToken = Match(TokenType.Tool);
-        var nameToken = Match(TokenType.Identifier);
+        string toolName = ParseIdentifierName("Expected tool name identifier");
         Match(TokenType.OpenBrace);
 
-        var members = new List<AstNode>();
-        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        if (Check(TokenType.Description) || Check(TokenType.Input) || Check(TokenType.Execute))
         {
-            // Tools can contain tasks or context or statements
-            if (Check(TokenType.Task))
-                members.Add(ParseTaskDeclaration());
-            else if (Check(TokenType.Context))
-                members.Add(ParseContextDeclaration());
-            else
-                members.Add(ParseStatement());
-        }
+            string? description = null;
+            var inputs = new List<ToolParameterNode>();
+            List<StatementNode> executeBody = [];
 
-        var closeBrace = Match(TokenType.CloseBrace);
-        return new ToolDeclarationNode(nameToken.Text, members, new SourceSpan(toolToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                if (Check(TokenType.Description))
+                {
+                    Match(TokenType.Description);
+                    Match(TokenType.Equals);
+                    var descExpr = ParseExpression();
+                    if (descExpr is LiteralExpressionNode lit && lit.Value != null)
+                    {
+                        description = lit.Value.ToString();
+                    }
+                    MatchOptional(TokenType.Semicolon, out _);
+                }
+                else if (Check(TokenType.Input))
+                {
+                    var inputToken = Match(TokenType.Input);
+                    string paramName = ParseIdentifierName("Expected input parameter name");
+                    Match(TokenType.Colon);
+                    string typeName = ParseIdentifierName("Expected input parameter type");
+                    MatchOptional(TokenType.Semicolon, out _);
+                    inputs.Add(new ToolParameterNode(paramName, typeName, new SourceSpan(inputToken.Span.Start, Current.Span.End, _source.FilePath)));
+                }
+                else if (Check(TokenType.Execute))
+                {
+                    Match(TokenType.Execute);
+                    Match(TokenType.OpenBrace);
+                    executeBody = ParseStatementListUntil(TokenType.CloseBrace);
+                    Match(TokenType.CloseBrace);
+                }
+                else
+                {
+                    _diagnostics.ReportError("AL1006", $"Unexpected token '{Current.Text}' in custom tool declaration", Current.Span);
+                    NextToken();
+                }
+            }
+
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new CustomToolDeclarationNode(toolName, description, inputs, executeBody, new SourceSpan(toolToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
+        else
+        {
+            var members = new List<AstNode>();
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                if (Check(TokenType.Task))
+                    members.Add(ParseTaskDeclaration());
+                else if (Check(TokenType.Context))
+                    members.Add(ParseContextDeclaration());
+                else
+                    members.Add(ParseStatement());
+            }
+
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new ToolDeclarationNode(toolName, members, new SourceSpan(toolToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
     }
 
     private EventDeclarationNode ParseEventDeclaration()
@@ -420,6 +538,10 @@ public sealed class Parser
             return ParseRetryStatement();
         if (Check(TokenType.Parallel))
             return ParseParallelBlock();
+        if (Check(TokenType.Function))
+            return ParseFunctionDeclaration();
+        if (Check(TokenType.Send))
+            return ParseSendMessageStatement();
 
         // Agent invocation: "agent Researcher"
         if (Check(TokenType.Agent) && IsContextualIdentifier(Lookahead.Type))
@@ -549,6 +671,23 @@ public sealed class Parser
         var closeBrace = Match(TokenType.CloseBrace);
 
         return new RetryStatementNode(count, body, new SourceSpan(retryToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private SendMessageStatementNode ParseSendMessageStatement()
+    {
+        var sendToken = Match(TokenType.Send);
+        var messageExpr = ParseExpression();
+        Match(TokenType.To);
+        string targetAgent = ParseIdentifierName("Expected target agent name");
+        ExpressionNode? tag = null;
+        if (Check(TokenType.Identifier) && Current.Text == "tag")
+        {
+            NextToken();
+            tag = ParseExpression();
+        }
+        MatchOptional(TokenType.Semicolon, out var semiToken);
+        var endSpan = semiToken?.Span.End ?? tag?.Span.End ?? Current.Span.End;
+        return new SendMessageStatementNode(messageExpr, targetAgent, tag, new SourceSpan(sendToken.Span.Start, endSpan, _source.FilePath));
     }
 
     // Expression parsing with operator precedence (Pratt parsing)
@@ -693,6 +832,14 @@ public sealed class Parser
                 NextToken();
                 expr = new MemberAccessExpressionNode(expr, member, new SourceSpan(expr.Span.Start, memberSpan.End, _source.FilePath));
             }
+            else if (Check(TokenType.OpenBracket))
+            {
+                // Index access: expr[index]
+                Match(TokenType.OpenBracket);
+                var indexExpr = ParseExpression();
+                var closeBracket = Match(TokenType.CloseBracket);
+                expr = new IndexAccessExpressionNode(expr, indexExpr, new SourceSpan(expr.Span.Start, closeBracket.Span.End, _source.FilePath));
+            }
             else
             {
                 break;
@@ -724,8 +871,8 @@ public sealed class Parser
             return new AiOperationExpressionNode(opToken.Text, args, new SourceSpan(opToken.Span.Start, closeParen.Span.End, _source.FilePath));
         }
 
-        // Builtins: print(...) and input(...)
-        if (Check(TokenType.Print) || Check(TokenType.Input))
+        // Builtins: print(...), input(...), type(...)
+        if (Check(TokenType.Print) || Check(TokenType.Input) || Check(TokenType.Type))
         {
             var fnToken = NextToken();
             return new IdentifierExpressionNode(fnToken.Text, fnToken.Span);
@@ -785,6 +932,43 @@ public sealed class Parser
             }
             var closeBracket = Match(TokenType.CloseBracket);
             return new ListLiteralExpressionNode(elements, new SourceSpan(openBracket.Span.Start, closeBracket.Span.End, _source.FilePath));
+        }
+
+        // Map literal: { key: value, ... }
+        if (Check(TokenType.OpenBrace))
+        {
+            var openBrace = Match(TokenType.OpenBrace);
+            var entries = new List<KeyValuePair<string, ExpressionNode>>();
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                string key;
+                if (Check(TokenType.StringLiteral))
+                {
+                    key = Current.Value?.ToString() ?? Current.Text;
+                    NextToken();
+                }
+                else if (IsContextualIdentifier(Current.Type))
+                {
+                    key = Current.Text;
+                    NextToken();
+                }
+                else
+                {
+                    _diagnostics.ReportError("AL1007", $"Expected map key string or identifier, got '{Current.Text}'", Current.Span);
+                    break;
+                }
+
+                Match(TokenType.Colon);
+                var val = ParseExpression();
+                entries.Add(new KeyValuePair<string, ExpressionNode>(key, val));
+
+                if (Check(TokenType.Comma))
+                    Match(TokenType.Comma);
+                else
+                    break;
+            }
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new MapLiteralExpressionNode(entries, new SourceSpan(openBrace.Span.Start, closeBrace.Span.End, _source.FilePath));
         }
 
         _diagnostics.ReportError("AL1005", $"Unexpected expression token '{current.Text}'", current.Span);

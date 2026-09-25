@@ -144,3 +144,18 @@ public sealed class AgentInvocationNode(string agentName, SourceSpan span)
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class SendMessageStatementNode(
+    ExpressionNode message,
+    string targetAgent,
+    ExpressionNode? tag,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode Message { get; } = message;
+    public string TargetAgent { get; } = targetAgent;
+    public ExpressionNode? Tag { get; } = tag;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}

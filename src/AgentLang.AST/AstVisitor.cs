@@ -59,6 +59,24 @@ public abstract class AstVisitor : IAstVisitor
             stmt.Accept(this);
     }
 
+    public virtual void Visit(FunctionDeclarationNode node)
+    {
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(ModelDeclarationNode node) { }
+
+    public virtual void Visit(CustomToolDeclarationNode node)
+    {
+        foreach (var param in node.Inputs)
+            param.Accept(this);
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(ToolParameterNode node) { }
+
     public virtual void Visit(BlockStatementNode node)
     {
         foreach (var stmt in node.Statements)
@@ -126,6 +144,11 @@ public abstract class AstVisitor : IAstVisitor
     }
 
     public virtual void Visit(AgentInvocationNode node) { }
+    public virtual void Visit(SendMessageStatementNode node)
+    {
+        node.Message.Accept(this);
+        node.Tag?.Accept(this);
+    }
 
     public virtual void Visit(LiteralExpressionNode node) { }
     public virtual void Visit(IdentifierExpressionNode node) { }
@@ -163,5 +186,11 @@ public abstract class AstVisitor : IAstVisitor
     {
         foreach (var arg in node.Arguments)
             arg.Accept(this);
+    }
+
+    public virtual void Visit(IndexAccessExpressionNode node)
+    {
+        node.Target.Accept(this);
+        node.Index.Accept(this);
     }
 }

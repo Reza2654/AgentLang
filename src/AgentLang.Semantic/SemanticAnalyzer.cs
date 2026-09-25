@@ -20,7 +20,7 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInFunctions = new(StringComparer.Ordinal)
     {
-        "print", "input"
+        "print", "input", "type"
     };
 
     private static readonly HashSet<string> BuiltInAiOperations = new(StringComparer.Ordinal)
@@ -81,6 +81,27 @@ public sealed class SemanticAnalyzer : AstVisitor
                 if (!_globalScope.TryDeclare(new Symbol(tool.Name, SymbolKind.Tool, tool.Span, tool)))
                 {
                     _diagnostics.ReportError("AL2002", $"Duplicate tool declaration '{tool.Name}'", tool.Span);
+                }
+                break;
+
+            case CustomToolDeclarationNode ctool:
+                if (!_globalScope.TryDeclare(new Symbol(ctool.Name, SymbolKind.Tool, ctool.Span, ctool)))
+                {
+                    _diagnostics.ReportError("AL2002", $"Duplicate tool declaration '{ctool.Name}'", ctool.Span);
+                }
+                break;
+
+            case FunctionDeclarationNode fn:
+                if (!_globalScope.TryDeclare(new Symbol(fn.Name, SymbolKind.Function, fn.Span, fn)))
+                {
+                    _diagnostics.ReportError("AL2011", $"Duplicate function declaration '{fn.Name}'", fn.Span);
+                }
+                break;
+
+            case ModelDeclarationNode mdl:
+                if (!_globalScope.TryDeclare(new Symbol(mdl.Alias, SymbolKind.ModelAlias, mdl.Span, mdl)))
+                {
+                    _diagnostics.ReportError("AL2012", $"Duplicate model declaration '{mdl.Alias}'", mdl.Span);
                 }
                 break;
 
@@ -163,6 +184,13 @@ public sealed class SemanticAnalyzer : AstVisitor
                     _diagnostics.ReportError("AL2008", $"Duplicate task '{task.Name}' in agent '{node.Name}'", task.Span);
                 }
             }
+            else if (item is FunctionDeclarationNode fn)
+            {
+                if (!_currentScope.TryDeclare(new Symbol(fn.Name, SymbolKind.Function, fn.Span, fn)))
+                {
+                    _diagnostics.ReportError("AL2011", $"Duplicate function '{fn.Name}' in agent '{node.Name}'", fn.Span);
+                }
+            }
         }
 
         // Now visit all body items
@@ -211,6 +239,11 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     public override void Visit(TaskDeclarationNode node)
     {
+        foreach (var cfg in node.Config)
+        {
+            cfg.Accept(this);
+        }
+
         var taskScope = new Scope($"task:{node.Name}", _currentScope);
         var prevScope = _currentScope;
         _currentScope = taskScope;
@@ -221,6 +254,110 @@ public sealed class SemanticAnalyzer : AstVisitor
         }
 
         _currentScope = prevScope;
+    }
+
+    public override void Visit(FunctionDeclarationNode node)
+    {
+        _currentScope.TryDeclare(new Symbol(node.Name, SymbolKind.Function, node.Span, node));
+
+        var fnScope = new Scope($"fn:{node.Name}", _currentScope);
+        var prevScope = _currentScope;
+        _currentScope = fnScope;
+
+        var seenParams = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var param in node.Parameters)
+        {
+            if (!seenParams.Add(param))
+            {
+                _diagnostics.ReportError("AL2013", $"Duplicate parameter name '{param}' in function '{node.Name}'", node.Span);
+            }
+            _currentScope.TryDeclare(new Symbol(param, SymbolKind.Variable, node.Span));
+        }
+
+        foreach (var stmt in node.Body)
+        {
+            stmt.Accept(this);
+        }
+
+        _currentScope = prevScope;
+    }
+
+    public override void Visit(ModelDeclarationNode node)
+    {
+        _globalScope.TryDeclare(new Symbol(node.Alias, SymbolKind.ModelAlias, node.Span, node));
+    }
+
+    public override void Visit(CustomToolDeclarationNode node)
+    {
+        _globalScope.TryDeclare(new Symbol(node.Name, SymbolKind.Tool, node.Span, node));
+
+        var toolScope = new Scope($"tool:{node.Name}", _currentScope);
+        var prevScope = _currentScope;
+        _currentScope = toolScope;
+
+        var seenParams = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var input in node.Inputs)
+        {
+            if (!seenParams.Add(input.Name))
+            {
+                _diagnostics.ReportError("AL2014", $"Duplicate input parameter '{input.Name}' in tool '{node.Name}'", input.Span);
+            }
+            input.Accept(this);
+            _currentScope.TryDeclare(new Symbol(input.Name, SymbolKind.Variable, input.Span));
+        }
+
+        foreach (var stmt in node.Body)
+        {
+            stmt.Accept(this);
+        }
+
+        _currentScope = prevScope;
+    }
+
+    public override void Visit(ToolParameterNode node)
+    {
+    }
+
+    public override void Visit(SendMessageStatementNode node)
+    {
+        node.Message.Accept(this);
+        node.Tag?.Accept(this);
+
+        var agentSym = _globalScope.Lookup(node.TargetAgent) ?? _currentScope.Lookup(node.TargetAgent);
+        if (agentSym == null || (agentSym.Kind != SymbolKind.Agent && agentSym.Kind != SymbolKind.Variable))
+        {
+            string? suggestion = FindClosestMatch(node.TargetAgent, _globalScope.AllSymbols().Where(s => s.Kind == SymbolKind.Agent).Select(s => s.Name));
+            _diagnostics.ReportError("AL2015", $"Cannot send message: unknown agent '{node.TargetAgent}'", node.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
+        }
+    }
+
+    public override void Visit(ForStatementNode node)
+    {
+        node.Iterable.Accept(this);
+        var forScope = new Scope("for", _currentScope);
+        forScope.TryDeclare(new Symbol(node.VariableName, SymbolKind.Variable, node.Span));
+
+        var prevScope = _currentScope;
+        _currentScope = forScope;
+        foreach (var stmt in node.Body)
+        {
+            stmt.Accept(this);
+        }
+        _currentScope = prevScope;
+    }
+
+    public override void Visit(IndexAccessExpressionNode node)
+    {
+        node.Target.Accept(this);
+        node.Index.Accept(this);
+    }
+
+    public override void Visit(MapLiteralExpressionNode node)
+    {
+        foreach (var entry in node.Entries)
+        {
+            entry.Value.Accept(this);
+        }
     }
 
     public override void Visit(AgentInvocationNode node)
@@ -250,7 +387,7 @@ public sealed class SemanticAnalyzer : AstVisitor
         if (sym == null)
         {
             // Check if it's a known model or function or operation
-            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name))
+            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name) || BuiltInModels.Contains(node.Name))
                 return;
 
             string? suggestion = FindClosestMatch(node.Name, _currentScope.AllSymbols().Select(s => s.Name));

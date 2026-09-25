@@ -1,7 +1,9 @@
 using AgentLang.AST;
+using AgentLang.Errors;
 using AgentLang.Models;
 using AgentLang.Parser;
 using AgentLang.Runtime;
+using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
 using AgentLang.Security;
 using AgentLang.Tools;
@@ -282,5 +284,184 @@ public class RuntimeTests
         var (runtime, _) = CreateTestRuntime();
 
         await Assert.ThrowsAsync<SecurityException>(() => runtime.ExecuteProgramAsync(program));
+    }
+
+    [Fact]
+    public async Task ExecutesFirstClassFunctionsAndTypeInspection()
+    {
+        string source = """
+            function multiply(a, b) {
+                return a * b
+            }
+
+            main {
+                result = multiply(6, 7)
+                resType = type(result)
+                print("Result: " + result + ", Type: " + resType)
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+        await runtime.ExecuteProgramAsync(program);
+
+        Assert.Contains("Result: 42, Type: number", output.ToString());
+    }
+
+    [Fact]
+    public async Task EnforcesRecursionStackLimit()
+    {
+        string source = """
+            function infinite(n) {
+                return infinite(n + 1)
+            }
+
+            main {
+                infinite(1)
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, _) = CreateTestRuntime();
+
+        var ex = await Assert.ThrowsAsync<AgentLangRuntimeException>(() => runtime.ExecuteProgramAsync(program));
+        Assert.Equal("AGT301", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ExecutesCustomToolDefinition()
+    {
+        string source = """
+            tool greeter {
+                description = "Custom greeter"
+                input name: string
+                execute {
+                    return "Welcome, " + name
+                }
+            }
+
+            main {
+                msg = greeter("Agent")
+                print(msg)
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+        await runtime.ExecuteProgramAsync(program);
+
+        Assert.Contains("Welcome, Agent", output.ToString());
+    }
+
+    [Fact]
+    public async Task ExecutesAgentMessagingAndInbox()
+    {
+        string source = """
+            agent Sender (model = mock) {
+                task sendTask {
+                    send "Task Payload" to Receiver tag "alert"
+                }
+            }
+
+            agent Receiver (model = mock) {
+                task receiveTask {
+                    print("Inbox count: " + Receiver.inbox.length)
+                    msg = Receiver.inbox[0]
+                    print("Msg: " + msg.content + ", tag: " + msg.tag)
+                }
+            }
+
+            main {
+                agent Sender
+                agent Receiver
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+        await runtime.ExecuteProgramAsync(program);
+
+        var outputStr = output.ToString();
+        Assert.Contains("Inbox count: 1", outputStr);
+        Assert.Contains("Msg: Task Payload, tag: alert", outputStr);
+        Assert.Single(runtime.AgentInstances["Receiver"].Inbox);
+    }
+
+    [Fact]
+    public async Task ExecutesModelAliasesAndTaskOverrides()
+    {
+        string source = """
+            model fast = mock
+
+            agent AliasAgent (model = fast) {
+                task t1 (model = fast) {
+                    res = think("Testing alias")
+                    print("Model: " + res.model)
+                }
+            }
+
+            main {
+                agent AliasAgent
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+        await runtime.ExecuteProgramAsync(program);
+
+        Assert.Contains("Model: mock", output.ToString());
+        Assert.True(runtime.ModelRegistry.Aliases.ContainsKey("fast"));
+    }
+
+    [Fact]
+    public async Task ExecutesPersistentMemoryStore()
+    {
+        var memStore = new InMemoryMemoryStore();
+        string source1 = """
+            agent MemoryUser (model = mock, memory = true) {
+                context item = "remember_this_fact"
+                task run {
+                    print("Ran run")
+                }
+            }
+
+            main {
+                agent MemoryUser
+            }
+            """;
+
+        var parser1 = new Parser.Parser(new SourceText(source1));
+        var prog1 = parser1.ParseProgram();
+
+        var output1 = new StringWriter();
+        var runtime1 = new AgentLangRuntime(memoryStore: memStore, output: output1);
+        await runtime1.ExecuteProgramAsync(prog1);
+
+        var loaded = await memStore.LoadMemoryAsync("MemoryUser");
+        Assert.NotEmpty(loaded);
+        Assert.Contains(loaded, m => m.Contains("remember_this_fact"));
+    }
+
+    [Fact]
+    public async Task ThrowsStructuredExceptionsWithErrorCode()
+    {
+        string source = """
+            main {
+                nums = [1, 2]
+                val = nums[10]
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, _) = CreateTestRuntime();
+
+        var ex = await Assert.ThrowsAsync<AgentLangRuntimeException>(() => runtime.ExecuteProgramAsync(program));
+        Assert.Equal("AGT302", ex.ErrorCode);
     }
 }

@@ -40,3 +40,7 @@ Thumbs.db
 # Secrets / local env
 .env
 *.local.agent
+
+# AgentLang runtime persistent memory store
+.agentlang/
+

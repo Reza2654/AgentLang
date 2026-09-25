@@ -1,0 +1,28 @@
+// AgentLang v0.2.0: Model System 2.0 with Aliases & Task-Level Overrides
+
+model fast = mock
+model deep = mock
+
+agent MultiModelAgent (model = fast) {
+    context topic = "Autonomous Agent Protocols"
+
+    task quick_scan (model = fast) {
+        print("[MultiModelAgent] Running quick_scan with model alias: fast")
+        res = think("Quick overview of " + topic)
+        print("Quick scan output: " + res.result)
+        print("Model used: " + res.model)
+    }
+
+    task deep_analysis (model = deep) {
+        print("[MultiModelAgent] Running deep_analysis with model alias: deep")
+        res = think("Deep architectural breakdown of " + topic)
+        print("Deep analysis output: " + res.result)
+        print("Model used: " + res.model)
+    }
+}
+
+main {
+    print("=== AgentLang v0.2.0 Model System 2.0 Demo ===")
+    agent MultiModelAgent
+    print("✓ Model aliases and task overrides executed successfully.")
+}

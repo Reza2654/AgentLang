@@ -1,0 +1,30 @@
+// AgentLang v0.2.0: Agent Communication & Messaging Demo
+
+agent Coordinator (model = mock) {
+    task dispatch {
+        print("[Coordinator] Dispatching mission requirements to Worker...")
+        send "Mission Alpha: Scan all network nodes" to Worker tag "urgent"
+        send "Mission Beta: Archive system logs" to Worker tag "routine"
+        print("[Coordinator] Messages dispatched successfully.")
+    }
+}
+
+agent Worker (model = mock) {
+    task process_inbox {
+        print("[Worker] Checking inbox...")
+        print("[Worker] Total messages in inbox: " + Worker.inbox.length)
+
+        firstMsg = Worker.inbox[0]
+        print("[Worker] Received message 1: " + firstMsg.content + " [tag: " + firstMsg.tag + "]")
+
+        secondMsg = Worker.inbox[1]
+        print("[Worker] Received message 2: " + secondMsg.content + " [tag: " + secondMsg.tag + "]")
+    }
+}
+
+main {
+    print("=== AgentLang v0.2.0 Agent Communication Demo ===")
+    agent Coordinator
+    agent Worker
+    print("✓ Agent messaging and inbox inspection completed successfully.")
+}

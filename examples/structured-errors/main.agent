@@ -1,0 +1,42 @@
+// AgentLang v0.2.0: Structured Errors & Rich Telemetry
+
+function divide(a, b) {
+    if (b == 0) {
+        return a / b
+    }
+    return a / b
+}
+
+main {
+    print("=== AgentLang v0.2.0 Structured Errors & Telemetry Demo ===")
+
+    // Structured error handling with try-catch
+    try {
+        print("Attempting invalid mathematical division...")
+        result = divide(100, 0)
+        print("Result: " + result)
+    }
+    catch err {
+        print("[CAUGHT ERROR]: " + err)
+    }
+
+    // Index error handling
+    try {
+        items = [1, 2, 3]
+        print("Accessing out of bounds item...")
+        bad = items[99]
+    }
+    catch err {
+        print("[CAUGHT BOUNDS ERROR]: " + err)
+    }
+
+    // Telemetry inspection
+    op = think("Evaluate safe operational bounds")
+    print("Operation Telemetry:")
+    print("  Status:   " + op.status)
+    print("  Model:    " + op.model)
+    print("  Type:     " + op.type)
+    print("  Result:   " + op.result)
+
+    print("✓ Structured error and telemetry validation completed.")
+}

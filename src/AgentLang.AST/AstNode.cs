@@ -26,6 +26,10 @@ public interface IAstVisitor
     void Visit(PermissionRuleNode node);
     void Visit(ToolDeclarationNode node);
     void Visit(EventDeclarationNode node);
+    void Visit(FunctionDeclarationNode node);
+    void Visit(ModelDeclarationNode node);
+    void Visit(CustomToolDeclarationNode node);
+    void Visit(ToolParameterNode node);
 
     void Visit(BlockStatementNode node);
     void Visit(ExpressionStatementNode node);
@@ -39,6 +43,7 @@ public interface IAstVisitor
     void Visit(RetryStatementNode node);
     void Visit(ParallelBlockNode node);
     void Visit(AgentInvocationNode node);
+    void Visit(SendMessageStatementNode node);
 
     void Visit(LiteralExpressionNode node);
     void Visit(IdentifierExpressionNode node);
@@ -49,6 +54,7 @@ public interface IAstVisitor
     void Visit(ListLiteralExpressionNode node);
     void Visit(MapLiteralExpressionNode node);
     void Visit(AiOperationExpressionNode node);
+    void Visit(IndexAccessExpressionNode node);
 }
 
 public interface IAstVisitor<T>
@@ -64,6 +70,10 @@ public interface IAstVisitor<T>
     T Visit(PermissionRuleNode node);
     T Visit(ToolDeclarationNode node);
     T Visit(EventDeclarationNode node);
+    T Visit(FunctionDeclarationNode node);
+    T Visit(ModelDeclarationNode node);
+    T Visit(CustomToolDeclarationNode node);
+    T Visit(ToolParameterNode node);
 
     T Visit(BlockStatementNode node);
     T Visit(ExpressionStatementNode node);
@@ -77,6 +87,7 @@ public interface IAstVisitor<T>
     T Visit(RetryStatementNode node);
     T Visit(ParallelBlockNode node);
     T Visit(AgentInvocationNode node);
+    T Visit(SendMessageStatementNode node);
 
     T Visit(LiteralExpressionNode node);
     T Visit(IdentifierExpressionNode node);
@@ -87,4 +98,5 @@ public interface IAstVisitor<T>
     T Visit(ListLiteralExpressionNode node);
     T Visit(MapLiteralExpressionNode node);
     T Visit(AiOperationExpressionNode node);
+    T Visit(IndexAccessExpressionNode node);
 }

@@ -135,4 +135,58 @@ public class ExamplesIntegrationTests
         Assert.Contains("Executing sensitive operation with human approval guardrails", output);
         Assert.True(runtime.AgentInstances.ContainsKey("AdminAgent"));
     }
+
+    [Fact]
+    public async Task RunsFunctionsExample()
+    {
+        var (output, _) = await RunScriptAsync("examples/functions/main.agent");
+        Assert.Contains("Hello, Alice [Lead Researcher]!", output);
+        Assert.Contains("Calculated total score: 100", output);
+        Assert.Contains("Type of score: number", output);
+        Assert.Contains("Factorial of 5: 120", output);
+    }
+
+    [Fact]
+    public async Task RunsCustomToolsExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/custom-tools/main.agent");
+        Assert.Contains("Tool Output: Positive (score: 95)", output);
+        Assert.True(runtime.AgentInstances.ContainsKey("ReviewAgent"));
+    }
+
+    [Fact]
+    public async Task RunsAgentCommunicationExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/agent-communication/main.agent");
+        Assert.Contains("Total messages in inbox: 2", output);
+        Assert.Contains("Mission Alpha: Scan all network nodes", output);
+        Assert.True(runtime.AgentInstances.ContainsKey("Worker"));
+        Assert.Equal(2, runtime.AgentInstances["Worker"].Inbox.Count);
+    }
+
+    [Fact]
+    public async Task RunsModelOverridesExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/model-overrides/main.agent");
+        Assert.Contains("Quick overview of Autonomous Agent Protocols", output);
+        Assert.Contains("Deep architectural breakdown of Autonomous Agent Protocols", output);
+        Assert.True(runtime.ModelRegistry.Aliases.ContainsKey("fast"));
+    }
+
+    [Fact]
+    public async Task RunsPersistentMemoryExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/persistent-memory/main.agent");
+        Assert.Contains("Persistent memory snapshot verified successfully", output);
+        Assert.True(runtime.AgentInstances.ContainsKey("Historian"));
+    }
+
+    [Fact]
+    public async Task RunsStructuredErrorsExample()
+    {
+        var (output, _) = await RunScriptAsync("examples/structured-errors/main.agent");
+        Assert.Contains("[CAUGHT ERROR]: [AGT303] Division by zero", output);
+        Assert.Contains("[CAUGHT BOUNDS ERROR]: [AGT302]", output);
+        Assert.Contains("Status:   completed", output);
+    }
 }

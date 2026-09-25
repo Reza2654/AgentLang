@@ -31,7 +31,10 @@ public interface IModelProvider
 public sealed class ModelRegistry
 {
     private readonly List<IModelProvider> _providers = [];
+    private readonly Dictionary<string, string> _aliases = new(StringComparer.OrdinalIgnoreCase);
     private IModelProvider _defaultProvider;
+
+    public IReadOnlyDictionary<string, string> Aliases => _aliases;
 
     public ModelRegistry()
     {
@@ -47,11 +50,30 @@ public sealed class ModelRegistry
             _defaultProvider = provider;
     }
 
+    public void RegisterAlias(string alias, string targetModel)
+    {
+        _aliases[alias] = targetModel;
+    }
+
+    public string ResolveAlias(string modelOrAlias)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string current = modelOrAlias;
+        while (_aliases.TryGetValue(current, out var target))
+        {
+            if (!visited.Add(current))
+                break; // Cycle guard
+            current = target;
+        }
+        return current;
+    }
+
     public IModelProvider Resolve(string modelName)
     {
+        string effectiveModel = ResolveAlias(modelName);
         foreach (var provider in _providers)
         {
-            if (provider.CanHandle(modelName))
+            if (provider.CanHandle(effectiveModel) || provider.CanHandle(modelName))
                 return provider;
         }
 

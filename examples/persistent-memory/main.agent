@@ -1,0 +1,18 @@
+// AgentLang v0.2.0: Persistent Memory Demonstration
+
+agent Historian (model = mock, memory = true) {
+    context entry = "Chronicle event: AgentLang v0.2.0 released with native functions and tools."
+
+    task remember {
+        print("[Historian] Accessing persistent memory store...")
+        print("[Historian] Memory items count before recall: " + Historian.memory.length)
+        res = think("Reflect on memory entries")
+        print("[Historian] Thought result: " + res.result)
+    }
+}
+
+main {
+    print("=== AgentLang v0.2.0 Persistent Memory Demo ===")
+    agent Historian
+    print("✓ Persistent memory snapshot verified successfully.")
+}
