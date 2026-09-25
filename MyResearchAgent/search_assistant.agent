@@ -1,0 +1,18 @@
+// AgentLang v0.2.2 - Live Web Search & AI Assistant
+// You can supply keys either here using importapi or in a .env file:
+// importapi tavily = "tvly-YOUR_TAVILY_KEY"
+// importapi gemini = "YOUR_GEMINI_KEY", model = "gemini-1.5-flash"
+
+agent SearchAssistant (model = "gemini-1.5-flash") {
+    task searchTask {
+        query = "Microsoft AI news"
+        print("🔍 Searching the web for: " + query)
+        results = browser.search(query)
+        print(results)
+        return results
+    }
+}
+
+main {
+    agent SearchAssistant
+}

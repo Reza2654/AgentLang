@@ -28,6 +28,28 @@ public sealed class SearchProviderRegistry
     public ISearchProvider? GetProvider(string providerId) =>
         _providers.TryGetValue(providerId, out var p) ? p : null;
 
+    public void SetProviderApiKey(string providerId, string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey)) return;
+
+        string norm = providerId.ToLowerInvariant();
+        if (norm is "tavily" or "search")
+        {
+            if (_providers.TryGetValue("tavily", out var p) && p is TavilySearchProvider tavily)
+                tavily.SetApiKey(apiKey);
+        }
+        else if (norm == "serper")
+        {
+            if (_providers.TryGetValue("serper", out var p) && p is SerperSearchProvider serper)
+                serper.SetApiKey(apiKey);
+        }
+        else if (norm == "brave")
+        {
+            if (_providers.TryGetValue("brave", out var p) && p is BraveSearchProvider brave)
+                brave.SetApiKey(apiKey);
+        }
+    }
+
     public ISearchProvider ResolveProvider(string? preferredProvider = null, string? explicitApiKey = null)
     {
         // 1. If preferred provider explicitly specified

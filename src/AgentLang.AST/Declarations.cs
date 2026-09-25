@@ -182,6 +182,21 @@ public sealed class ModelDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class ImportApiDeclarationNode(
+    string provider,
+    ExpressionNode apiKey,
+    IReadOnlyDictionary<string, ExpressionNode>? options,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Provider { get; } = provider;
+    public ExpressionNode ApiKey { get; } = apiKey;
+    public IReadOnlyDictionary<string, ExpressionNode> Options { get; } = options ?? new Dictionary<string, ExpressionNode>();
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class EventDeclarationNode(
     string target,
     IReadOnlyList<StatementNode> body,

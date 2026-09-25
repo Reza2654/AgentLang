@@ -10,6 +10,7 @@ public sealed class BraveSearchProvider : ISearchProvider
 
     private readonly HttpClient _httpClient;
     private readonly string? _configuredApiKey;
+    private string? _dynamicApiKey;
     private readonly string _endpoint;
 
     public bool HasApiKey => !string.IsNullOrWhiteSpace(GetEffectiveApiKey(null));
@@ -21,8 +22,11 @@ public sealed class BraveSearchProvider : ISearchProvider
         _httpClient = httpClient ?? new HttpClient();
     }
 
+    public void SetApiKey(string apiKey) => _dynamicApiKey = apiKey;
+
     private string? GetEffectiveApiKey(string? explicitApiKey) =>
         explicitApiKey ??
+        _dynamicApiKey ??
         _configuredApiKey ??
         Environment.GetEnvironmentVariable("BRAVE_API_KEY") ??
         Environment.GetEnvironmentVariable("SEARCH_API_KEY");

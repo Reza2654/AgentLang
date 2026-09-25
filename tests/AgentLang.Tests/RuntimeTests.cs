@@ -465,4 +465,28 @@ public class RuntimeTests
         var ex = await Assert.ThrowsAsync<AgentLangRuntimeException>(() => runtime.ExecuteProgramAsync(program));
         Assert.Equal("AGT302", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task ImportApiConfiguresRuntimeProvidersAndEnvironment()
+    {
+        string source = """
+            importapi gemini = "AIzaSyTestGeminiKey123", model = "gemini-1.5-flash"
+            importapi tavily = "tvly-test-runtime-key"
+
+            main {
+                print("APIs configured successfully")
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        Assert.Contains("APIs configured successfully", output.ToString());
+        Assert.Equal("AIzaSyTestGeminiKey123", Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
+        Assert.Equal("gemini-1.5-flash", Environment.GetEnvironmentVariable("GEMINI_MODEL"));
+        Assert.Equal("tvly-test-runtime-key", Environment.GetEnvironmentVariable("TAVILY_API_KEY"));
+    }
 }

@@ -114,4 +114,41 @@ public class SearchTests
         var failed = SearchResponse.Failed("test", "Connection timeout", "tavily");
         Assert.Equal("Search failed (tavily): Connection timeout", failed.FormatMarkdown());
     }
+
+    [Fact]
+    public void CleanSnippetRemovesTraceIdAndNavGarbage()
+    {
+        string raw = "Trace Id is missing. Please contact the administrator. Skip to main content. Microsoft. Home. Home; Surface; Microsoft 365; Teams; Windows; Xbox; Deals; Small Business; Support; Software.";
+        string cleaned = SearchResponse.CleanSnippet(raw);
+
+        Assert.DoesNotContain("Trace Id is missing", cleaned);
+        Assert.DoesNotContain("Skip to main content", cleaned);
+        Assert.DoesNotContain("Please contact the administrator", cleaned);
+    }
+
+    [Fact]
+    public void SearchResponseFormatsSummaryAndCleanOutput()
+    {
+        var items = new List<SearchItem>
+        {
+            new("Microsoft", "https://microsoft.com", "Leading cloud and software company.", null)
+        };
+        var response = SearchResponse.Succeeded("microsoft", items, "tavily", "Microsoft develops cloud and enterprise software.");
+        string markdown = response.FormatMarkdown();
+
+        Assert.Contains("🌐 Search results for 'microsoft' (via tavily):", markdown);
+        Assert.Contains("💡 Quick Summary:", markdown);
+        Assert.Contains("Microsoft develops cloud and enterprise software.", markdown);
+        Assert.Contains("🔗 https://microsoft.com", markdown);
+        Assert.Contains("Leading cloud and software company.", markdown);
+    }
+
+    [Fact]
+    public void SearchProviderRegistrySetsDynamicApiKey()
+    {
+        var registry = new SearchProviderRegistry();
+        registry.SetProviderApiKey("tavily", "tvly-test-12345");
+        var tavily = Assert.IsType<TavilySearchProvider>(registry.GetProvider("tavily"));
+        Assert.True(tavily.HasApiKey);
+    }
 }

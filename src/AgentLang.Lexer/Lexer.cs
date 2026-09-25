@@ -50,6 +50,7 @@ public sealed class Lexer
         { "description", TokenType.Description },
         { "execute", TokenType.Execute },
         { "type", TokenType.Type },
+        { "importapi", TokenType.ImportApi },
         { "true", TokenType.BooleanLiteral },
         { "false", TokenType.BooleanLiteral },
         { "null", TokenType.NullLiteral },

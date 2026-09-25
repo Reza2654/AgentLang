@@ -76,6 +76,12 @@ public abstract class AstVisitor : IAstVisitor
     }
 
     public virtual void Visit(ToolParameterNode node) { }
+    public virtual void Visit(ImportApiDeclarationNode node)
+    {
+        node.ApiKey.Accept(this);
+        foreach (var opt in node.Options.Values)
+            opt.Accept(this);
+    }
 
     public virtual void Visit(BlockStatementNode node)
     {

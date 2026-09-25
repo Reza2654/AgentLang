@@ -1,0 +1,17 @@
+agent Researcher {
+    task search {
+        // دریافت موضوع به صورت زنده از کیبورد شما
+        topic = input("Why topic ")
+        print("salam maman")
+        
+        results = browser.search(topic)
+        return results
+    }
+
+    print("natayeg")
+    print(search.result)
+}
+
+main {
+    agent Researcher
+}

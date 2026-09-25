@@ -156,6 +156,10 @@ public sealed class AgentLangRuntime
                         }
                     });
                     break;
+
+                case ImportApiDeclarationNode apiDecl:
+                    await ExecuteImportApiAsync(apiDecl, _globalScope, ct);
+                    break;
             }
         }
 
@@ -524,6 +528,122 @@ public sealed class AgentLangRuntime
                 foreach (var s in block.Statements)
                     await ExecuteStatementAsync(s, bScope, ct);
                 break;
+
+            case ImportApiDeclarationNode apiDecl:
+                await ExecuteImportApiAsync(apiDecl, scope, ct);
+                break;
+        }
+    }
+
+    private async Task ExecuteImportApiAsync(ImportApiDeclarationNode apiDecl, RuntimeScope scope, CancellationToken ct)
+    {
+        var apiVal = await EvaluateExpressionAsync(apiDecl.ApiKey, scope, ct);
+        string apiKey = apiVal?.ToString() ?? "";
+
+        var resolvedOptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, vExpr) in apiDecl.Options)
+        {
+            var optVal = await EvaluateExpressionAsync(vExpr, scope, ct);
+            if (optVal != null)
+            {
+                resolvedOptions[k] = optVal.ToString()!;
+            }
+        }
+
+        string provider = apiDecl.Provider.ToLowerInvariant();
+
+        // 1. Export to environment variables
+        switch (provider)
+        {
+            case "gemini":
+            case "google":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("GEMINI_API_KEY", apiKey);
+                if (resolvedOptions.TryGetValue("model", out var geminiModel))
+                    Environment.SetEnvironmentVariable("GEMINI_MODEL", geminiModel);
+                break;
+
+            case "tavily":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("TAVILY_API_KEY", apiKey);
+                break;
+
+            case "search":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                {
+                    Environment.SetEnvironmentVariable("SEARCH_API_KEY", apiKey);
+                    Environment.SetEnvironmentVariable("TAVILY_API_KEY", apiKey);
+                }
+                break;
+
+            case "serper":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("SERPER_API_KEY", apiKey);
+                break;
+
+            case "brave":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("BRAVE_API_KEY", apiKey);
+                break;
+
+            case "openai":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("OPENAI_API_KEY", apiKey);
+                if (resolvedOptions.TryGetValue("model", out var openaiModel))
+                    Environment.SetEnvironmentVariable("OPENAI_MODEL", openaiModel);
+                break;
+
+            case "claude":
+            case "anthropic":
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", apiKey);
+                if (resolvedOptions.TryGetValue("model", out var anthropicModel))
+                    Environment.SetEnvironmentVariable("ANTHROPIC_MODEL", anthropicModel);
+                break;
+
+            default:
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    Environment.SetEnvironmentVariable($"{provider.ToUpperInvariant()}_API_KEY", apiKey);
+                break;
+        }
+
+        // 2. Direct runtime configuration of registered ModelProvider and SearchProvider
+        if (provider is "gemini" or "google")
+        {
+            if (_modelRegistry.GetProvider("gemini") is GeminiModelProvider geminiProvider)
+            {
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    geminiProvider.SetApiKey(apiKey);
+                if (resolvedOptions.TryGetValue("model", out var m))
+                    geminiProvider.SetDefaultModel(m);
+            }
+        }
+        else if (provider == "openai")
+        {
+            if (_modelRegistry.GetProvider("openai") is OpenAiModelProvider openaiProvider)
+            {
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    openaiProvider.SetApiKey(apiKey);
+                if (resolvedOptions.TryGetValue("model", out var m))
+                    openaiProvider.SetDefaultModel(m);
+            }
+        }
+        else if (provider is "claude" or "anthropic")
+        {
+            if (_modelRegistry.GetProvider("anthropic") is AnthropicModelProvider anthropicProvider)
+            {
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    anthropicProvider.SetApiKey(apiKey);
+                if (resolvedOptions.TryGetValue("model", out var m))
+                    anthropicProvider.SetDefaultModel(m);
+            }
+        }
+
+        // Configure Search Provider Registry
+        _toolRegistry.SearchRegistry.SetProviderApiKey(provider, apiKey);
+        if (provider == "search")
+        {
+            _toolRegistry.SearchRegistry.SetProviderApiKey("tavily", apiKey);
         }
     }
 
@@ -755,6 +875,12 @@ public sealed class AgentLangRuntime
             string searchData = toolRes.Output?.ToString() ?? "";
             var promptWithTool = $"{promptArg}\nContext from search: {searchData}";
             var response = await provider.GenerateAsync(request with { Prompt = promptWithTool }, ct);
+            if (!response.Success)
+            {
+                throw new AgentLangRuntimeException(
+                    $"AI model error ({response.Model}): {response.ErrorMessage}",
+                    errorCode: "AGT600");
+            }
             string finalContent = (provider is MockModelProvider) ? searchData : response.Content;
 
             var opVal = OperationValue.Succeeded(
@@ -766,7 +892,7 @@ public sealed class AgentLangRuntime
 
             if (CurrentAgent?.MemoryEnabled == true)
             {
-                CurrentAgent.Memory.Add($"research: {response.Content}");
+                CurrentAgent.Memory.Add($"research: {finalContent}");
             }
             return opVal;
         }
@@ -774,6 +900,12 @@ public sealed class AgentLangRuntime
         {
             // think operation
             var response = await provider.GenerateAsync(request, ct);
+            if (!response.Success)
+            {
+                throw new AgentLangRuntimeException(
+                    $"AI model error ({response.Model}): {response.ErrorMessage}",
+                    errorCode: "AGT600");
+            }
             var opVal = OperationValue.Succeeded(
                 "think",
                 response.Content,

@@ -122,6 +122,10 @@ public sealed class SemanticAnalyzer : AstVisitor
             case EventDeclarationNode evt:
                 _globalScope.TryDeclare(new Symbol($"event:{evt.Target}", SymbolKind.Event, evt.Span, evt));
                 break;
+
+            case ImportApiDeclarationNode:
+                // importapi is processed during evaluation/execution
+                break;
         }
     }
 

@@ -35,13 +35,22 @@ public sealed class ModelRegistry
     private IModelProvider _defaultProvider;
 
     public IReadOnlyDictionary<string, string> Aliases => _aliases;
+    public IReadOnlyList<IModelProvider> Providers => _providers;
 
     public ModelRegistry()
     {
         var mock = new MockModelProvider();
         _providers.Add(mock);
         _defaultProvider = mock;
+
+        // Register default REST providers
+        _providers.Add(new OpenAiModelProvider());
+        _providers.Add(new GeminiModelProvider());
+        _providers.Add(new AnthropicModelProvider());
     }
+
+    public IModelProvider? GetProvider(string providerId) =>
+        _providers.FirstOrDefault(p => p.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase));
 
     public void RegisterProvider(IModelProvider provider, bool makeDefault = false)
     {

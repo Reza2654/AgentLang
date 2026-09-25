@@ -1,0 +1,13 @@
+importapi gemini = "demo-gemini-key", model = "gemini-1.5-flash"
+importapi tavily = "demo-tavily-key"
+
+agent Assistant (model = "gemini-1.5-flash") {
+    task greet {
+        print("AgentLang v0.2.2: importapi executed cleanly!")
+        print("Gemini model configured: gemini-1.5-flash")
+    }
+}
+
+main {
+    agent Assistant
+}

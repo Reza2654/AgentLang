@@ -30,6 +30,7 @@ public interface IAstVisitor
     void Visit(ModelDeclarationNode node);
     void Visit(CustomToolDeclarationNode node);
     void Visit(ToolParameterNode node);
+    void Visit(ImportApiDeclarationNode node);
 
     void Visit(BlockStatementNode node);
     void Visit(ExpressionStatementNode node);
@@ -74,6 +75,7 @@ public interface IAstVisitor<T>
     T Visit(ModelDeclarationNode node);
     T Visit(CustomToolDeclarationNode node);
     T Visit(ToolParameterNode node);
+    T Visit(ImportApiDeclarationNode node);
 
     T Visit(BlockStatementNode node);
     T Visit(ExpressionStatementNode node);

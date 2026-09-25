@@ -208,4 +208,32 @@ public class ParserTests
         Assert.IsType<RepeatStatementNode>(ifStmt.ThenBranch[0]);
         Assert.IsType<WhileStatementNode>(ifStmt.ElseBranch[0]);
     }
+
+    [Fact]
+    public void ParsesImportApiDeclarations()
+    {
+        string source = """
+            importapi gemini = "AIzaSyFakeKey", model = "gemini-1.5-flash"
+            importapi tavily (key = "tvly-test", max = 5)
+
+            main {
+                print("apis imported")
+            }
+            """;
+
+        var sourceText = new SourceText(source);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        Assert.False(parser.Diagnostics.HasErrors);
+        Assert.Equal(2, program.Declarations.Count);
+
+        var first = Assert.IsType<ImportApiDeclarationNode>(program.Declarations[0]);
+        Assert.Equal("gemini", first.Provider);
+        Assert.True(first.Options.ContainsKey("model"));
+
+        var second = Assert.IsType<ImportApiDeclarationNode>(program.Declarations[1]);
+        Assert.Equal("tavily", second.Provider);
+        Assert.True(second.Options.ContainsKey("key"));
+    }
 }

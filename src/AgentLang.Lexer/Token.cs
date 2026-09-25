@@ -51,6 +51,7 @@ public enum TokenType
     Description,
     Execute,
     Type,
+    ImportApi,
 
     // Logical Operators
     And,

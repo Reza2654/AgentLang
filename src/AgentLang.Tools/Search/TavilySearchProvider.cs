@@ -11,6 +11,7 @@ public sealed class TavilySearchProvider : ISearchProvider
 
     private readonly HttpClient _httpClient;
     private readonly string? _configuredApiKey;
+    private string? _dynamicApiKey;
     private readonly string _endpoint;
 
     public bool HasApiKey => !string.IsNullOrWhiteSpace(GetEffectiveApiKey(null));
@@ -22,8 +23,11 @@ public sealed class TavilySearchProvider : ISearchProvider
         _httpClient = httpClient ?? new HttpClient();
     }
 
+    public void SetApiKey(string apiKey) => _dynamicApiKey = apiKey;
+
     private string? GetEffectiveApiKey(string? explicitApiKey) =>
         explicitApiKey ??
+        _dynamicApiKey ??
         _configuredApiKey ??
         Environment.GetEnvironmentVariable("TAVILY_API_KEY") ??
         Environment.GetEnvironmentVariable("SEARCH_API_KEY");
@@ -48,7 +52,7 @@ public sealed class TavilySearchProvider : ISearchProvider
                 query = query,
                 max_results = maxResults,
                 search_depth = "basic",
-                include_answer = false
+                include_answer = true
             };
 
             var jsonContent = new StringContent(
@@ -68,6 +72,12 @@ public sealed class TavilySearchProvider : ISearchProvider
             var root = doc.RootElement;
             var items = new List<SearchItem>();
 
+            string? answer = null;
+            if (root.TryGetProperty("answer", out var ansElem) && ansElem.ValueKind == JsonValueKind.String)
+            {
+                answer = ansElem.GetString();
+            }
+
             if (root.TryGetProperty("results", out var resultsElem) && resultsElem.ValueKind == JsonValueKind.Array)
             {
                 foreach (var item in resultsElem.EnumerateArray())
@@ -80,7 +90,7 @@ public sealed class TavilySearchProvider : ISearchProvider
                 }
             }
 
-            return SearchResponse.Succeeded(query, items, ProviderId);
+            return SearchResponse.Succeeded(query, items, ProviderId, answer);
         }
         catch (Exception ex)
         {

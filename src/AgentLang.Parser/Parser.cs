@@ -66,7 +66,7 @@ public sealed class Parser
                 TokenType.Permission or TokenType.Tool or TokenType.Event or
                 TokenType.Main or TokenType.Function or TokenType.Send or
                 TokenType.To or TokenType.Description or TokenType.Execute or
-                TokenType.Type;
+                TokenType.Type or TokenType.ImportApi;
 
     private string ParseIdentifierName(string? customError = null)
     {
@@ -134,6 +134,10 @@ public sealed class Parser
             {
                 declarations.Add(ParseDependenciesDeclaration());
             }
+            else if (Check(TokenType.ImportApi))
+            {
+                declarations.Add(ParseImportApiDeclaration());
+            }
             else
             {
                 _diagnostics.ReportError("AL1003", $"Unexpected top-level token '{Current.Text}'", Current.Span);
@@ -152,7 +156,7 @@ public sealed class Parser
         {
             if (Check(TokenType.Main) || Check(TokenType.Agent) || Check(TokenType.MultiAgent) ||
                 Check(TokenType.Permission) || Check(TokenType.Tool) || Check(TokenType.Event) ||
-                Check(TokenType.Function) || Check(TokenType.Model))
+                Check(TokenType.Function) || Check(TokenType.Model) || Check(TokenType.ImportApi))
             {
                 return;
             }
@@ -510,6 +514,56 @@ public sealed class Parser
         return new ToolDeclarationNode("dependencies", members, new SourceSpan(depToken.Span.Start, closeBrace.Span.End, _source.FilePath));
     }
 
+    private ImportApiDeclarationNode ParseImportApiDeclaration()
+    {
+        var importToken = Match(TokenType.ImportApi);
+        string provider = ParseIdentifierName("Expected provider name after 'importapi' (e.g. 'gemini', 'tavily', 'openai')");
+
+        ExpressionNode apiKeyExpr;
+        var options = new Dictionary<string, ExpressionNode>(StringComparer.OrdinalIgnoreCase);
+
+        if (MatchOptional(TokenType.OpenParen, out _))
+        {
+            while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+            {
+                string optKey = ParseIdentifierName();
+                Match(TokenType.Equals);
+                var optVal = ParseExpression();
+                options[optKey] = optVal;
+
+                if (!MatchOptional(TokenType.Comma, out _))
+                    break;
+            }
+            Match(TokenType.CloseParen);
+
+            if (options.TryGetValue("key", out var kExpr) || options.TryGetValue("apiKey", out kExpr))
+            {
+                apiKeyExpr = kExpr;
+            }
+            else
+            {
+                apiKeyExpr = new LiteralExpressionNode("", new SourceSpan(importToken.Span.Start, importToken.Span.End, _source.FilePath));
+            }
+        }
+        else
+        {
+            Match(TokenType.Equals);
+            apiKeyExpr = ParseExpression();
+
+            while (MatchOptional(TokenType.Comma, out _))
+            {
+                string optKey = ParseIdentifierName();
+                Match(TokenType.Equals);
+                var optVal = ParseExpression();
+                options[optKey] = optVal;
+            }
+        }
+
+        MatchOptional(TokenType.Semicolon, out _);
+        var endSpan = options.Count > 0 ? options.Values.Last().Span.End : apiKeyExpr.Span.End;
+        return new ImportApiDeclarationNode(provider, apiKeyExpr, options, new SourceSpan(importToken.Span.Start, endSpan, _source.FilePath));
+    }
+
     private List<StatementNode> ParseStatementListUntil(TokenType endToken)
     {
         var statements = new List<StatementNode>();
@@ -542,6 +596,8 @@ public sealed class Parser
             return ParseFunctionDeclaration();
         if (Check(TokenType.Send))
             return ParseSendMessageStatement();
+        if (Check(TokenType.ImportApi))
+            return ParseImportApiDeclaration();
 
         // Agent invocation: "agent Researcher"
         if (Check(TokenType.Agent) && IsContextualIdentifier(Lookahead.Type))
