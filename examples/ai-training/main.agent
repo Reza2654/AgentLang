@@ -1,0 +1,51 @@
+// AgentLang v0.4.0 — Native AI Building & Training Example
+// Demonstrates declarative dataset creation, model training with validation guardrails,
+// model deployment to agents, and agent runtime self-evolution (learn into).
+
+dataset MathQA {
+    mode: "qa"
+    pair("What is 2 + 2?", "4")
+    pair("What is 10 * 10?", "100")
+    pair("What is the square root of 64?", "8")
+}
+
+dataset CodePreferences {
+    mode: "preference"
+    preference(
+        prompt: "Write a function to add two numbers in Python",
+        chosen: "def add(a, b):\n    return a + b",
+        rejected: "def add(a, b):\n    result = 0\n    result += a\n    result += b\n    return result"
+    )
+}
+
+train model MathExpert {
+    base: "mock"
+    data: MathQA
+    epochs: 3
+    learning_rate: 0.001
+    validate {
+        test("What is 2 + 2?", "4")
+        test("What is 10 * 10?", "100")
+        min_accuracy: 80%
+    }
+}
+
+agent MathAssistant (model: MathExpert) {
+    task solveMath {
+        answer1 = think("What is 2 + 2?")
+        print("Trained Model Answer 1:", answer1)
+        answer2 = think("What is 10 * 10?")
+        print("Trained Model Answer 2:", answer2)
+    }
+}
+
+main {
+    print("=== AgentLang v0.4.0 AI Training Engine ===")
+    
+    // 1. Run agent using the freshly trained model
+    agent MathAssistant
+
+    // 2. Runtime self-evolution: Agent learns new knowledge into dataset dynamically
+    learn into MathQA (input: "What is 50 + 50?", output: "100")
+    print("Dataset MathQA now contains updated knowledge!")
+}

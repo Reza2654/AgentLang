@@ -7,7 +7,8 @@ public sealed record ModelRequest(
     string Prompt,
     string? SystemInstruction = null,
     IReadOnlyList<string>? Context = null,
-    double Temperature = 0.7);
+    double Temperature = 0.7,
+    IReadOnlyList<string>? Images = null);
 
 public sealed record ModelResponse(
     string Content,

@@ -15,7 +15,11 @@ public enum SymbolKind
     Operation,
     Function,
     ModelAlias,
-    CustomTool
+    CustomTool,
+    Dataset,
+    TrainedModel,
+    McpServer,
+    CustomApi
 }
 
 public sealed record Symbol(

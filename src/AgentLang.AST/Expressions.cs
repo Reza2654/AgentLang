@@ -148,3 +148,16 @@ public sealed class PlanExpressionNode(
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class NamedArgumentExpressionNode(
+    string name,
+    ExpressionNode value,
+    SourceSpan span)
+    : ExpressionNode(span)
+{
+    public string Name { get; } = name;
+    public ExpressionNode Value { get; } = value;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}

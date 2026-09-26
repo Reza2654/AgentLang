@@ -32,6 +32,15 @@ public interface IAstVisitor
     void Visit(ToolParameterNode node);
     void Visit(ImportApiDeclarationNode node);
     void Visit(SwarmDeclarationNode node);
+    void Visit(DatasetDeclarationNode node);
+    void Visit(DatasetPairNode node);
+    void Visit(DatasetPreferenceNode node);
+    void Visit(TrainDeclarationNode node);
+    void Visit(TrainValidationNode node);
+    void Visit(ValidationTestCaseNode node);
+    void Visit(McpDeclarationNode node);
+    void Visit(CustomApiDeclarationNode node);
+    void Visit(ApiMethodDeclarationNode node);
 
     void Visit(BlockStatementNode node);
     void Visit(ExpressionStatementNode node);
@@ -49,6 +58,7 @@ public interface IAstVisitor
     void Visit(BroadcastStatementNode node);
     void Visit(WaitStatementNode node);
     void Visit(UntilStatementNode node);
+    void Visit(LearnStatementNode node);
 
     void Visit(LiteralExpressionNode node);
     void Visit(IdentifierExpressionNode node);
@@ -62,6 +72,7 @@ public interface IAstVisitor
     void Visit(IndexAccessExpressionNode node);
     void Visit(DelegateExpressionNode node);
     void Visit(PlanExpressionNode node);
+    void Visit(NamedArgumentExpressionNode node);
 }
 
 public interface IAstVisitor<T>
@@ -83,6 +94,15 @@ public interface IAstVisitor<T>
     T Visit(ToolParameterNode node);
     T Visit(ImportApiDeclarationNode node);
     T Visit(SwarmDeclarationNode node);
+    T Visit(DatasetDeclarationNode node);
+    T Visit(DatasetPairNode node);
+    T Visit(DatasetPreferenceNode node);
+    T Visit(TrainDeclarationNode node);
+    T Visit(TrainValidationNode node);
+    T Visit(ValidationTestCaseNode node);
+    T Visit(McpDeclarationNode node);
+    T Visit(CustomApiDeclarationNode node);
+    T Visit(ApiMethodDeclarationNode node);
 
     T Visit(BlockStatementNode node);
     T Visit(ExpressionStatementNode node);
@@ -100,6 +120,7 @@ public interface IAstVisitor<T>
     T Visit(BroadcastStatementNode node);
     T Visit(WaitStatementNode node);
     T Visit(UntilStatementNode node);
+    T Visit(LearnStatementNode node);
 
     T Visit(LiteralExpressionNode node);
     T Visit(IdentifierExpressionNode node);
@@ -113,4 +134,5 @@ public interface IAstVisitor<T>
     T Visit(IndexAccessExpressionNode node);
     T Visit(DelegateExpressionNode node);
     T Visit(PlanExpressionNode node);
+    T Visit(NamedArgumentExpressionNode node);
 }

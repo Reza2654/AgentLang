@@ -1,0 +1,45 @@
+// AgentLang v0.4.0 — Custom APIs, Local LLMs, and Multimodal Vision Example
+// Demonstrates connecting to custom REST endpoints, local LLMs (Ollama/vLLM),
+// and calling vision/image generation capabilities.
+
+api WeatherService {
+    endpoint: "mock://api.weather.local"
+    type: "rest"
+    headers: {
+        "Authorization": "Bearer local_token"
+    }
+    get current(city: string) {
+        path: "/current"
+    }
+}
+
+api LocalLlama {
+    endpoint: "mock://localhost:11434"
+    type: "openai-compatible"
+    model: "llama3"
+}
+
+agent MultimodalAgent (
+    model: LocalLlama,
+    tools: [WeatherService.current, image, vision]
+) {
+    task generateCreativeAsset {
+        prompt = "A high-tech control center powered by autonomous agents"
+        generatedImg = image.generate(prompt)
+        print("Generated Asset:", generatedImg)
+
+        analyzed = vision.analyze("control_center.png", "Is security optimal?")
+        print("Vision Analysis:", analyzed)
+    }
+}
+
+main {
+    print("=== AgentLang v0.4.0 Custom APIs & Multimodal ===")
+
+    // 1. Direct call to custom declared REST API
+    weatherInfo = WeatherService.current(city: "Tehran")
+    print("Weather API Result:", weatherInfo)
+
+    // 2. Multimodal agent execution
+    agent MultimodalAgent
+}

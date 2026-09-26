@@ -229,6 +229,153 @@ public sealed class SwarmDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public abstract class DatasetItemNode(SourceSpan span) : AstNode(span)
+{
+}
+
+public sealed class DatasetPairNode(
+    ExpressionNode input,
+    ExpressionNode output,
+    SourceSpan span)
+    : DatasetItemNode(span)
+{
+    public ExpressionNode Input { get; } = input;
+    public ExpressionNode Output { get; } = output;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class DatasetPreferenceNode(
+    ExpressionNode prompt,
+    ExpressionNode chosen,
+    ExpressionNode rejected,
+    SourceSpan span)
+    : DatasetItemNode(span)
+{
+    public ExpressionNode Prompt { get; } = prompt;
+    public ExpressionNode Chosen { get; } = chosen;
+    public ExpressionNode Rejected { get; } = rejected;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class DatasetDeclarationNode(
+    string name,
+    string? mode,
+    IReadOnlyList<DatasetItemNode> items,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public string? Mode { get; } = mode; // "qa", "preference", "vision", etc.
+    public IReadOnlyList<DatasetItemNode> Items { get; } = items;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class ValidationTestCaseNode(
+    ExpressionNode prompt,
+    ExpressionNode expected,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public ExpressionNode Prompt { get; } = prompt;
+    public ExpressionNode Expected { get; } = expected;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class TrainValidationNode(
+    IReadOnlyList<ValidationTestCaseNode> testCases,
+    ExpressionNode? minAccuracy,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public IReadOnlyList<ValidationTestCaseNode> TestCases { get; } = testCases;
+    public ExpressionNode? MinAccuracy { get; } = minAccuracy;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class TrainDeclarationNode(
+    string modelName,
+    ExpressionNode? baseModel,
+    ExpressionNode? datasetRef,
+    ExpressionNode? epochs,
+    ExpressionNode? learningRate,
+    TrainValidationNode? validation,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string ModelName { get; } = modelName;
+    public ExpressionNode? BaseModel { get; } = baseModel;
+    public ExpressionNode? DatasetRef { get; } = datasetRef;
+    public ExpressionNode? Epochs { get; } = epochs;
+    public ExpressionNode? LearningRate { get; } = learningRate;
+    public TrainValidationNode? Validation { get; } = validation;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class McpDeclarationNode(
+    string serverName,
+    ExpressionNode commandOrPath,
+    IReadOnlyDictionary<string, ExpressionNode>? env,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string ServerName { get; } = serverName;
+    public ExpressionNode CommandOrPath { get; } = commandOrPath;
+    public IReadOnlyDictionary<string, ExpressionNode> Env { get; } = env ?? new Dictionary<string, ExpressionNode>();
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class ApiMethodDeclarationNode(
+    string httpMethod,
+    string name,
+    IReadOnlyList<ToolParameterNode> parameters,
+    ExpressionNode? pathExpression,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public string HttpMethod { get; } = httpMethod;
+    public string Name { get; } = name;
+    public IReadOnlyList<ToolParameterNode> Parameters { get; } = parameters;
+    public ExpressionNode? PathExpression { get; } = pathExpression;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class CustomApiDeclarationNode(
+    string apiName,
+    ExpressionNode endpoint,
+    ExpressionNode? apiType,
+    ExpressionNode? defaultModel,
+    IReadOnlyDictionary<string, ExpressionNode>? headers,
+    IReadOnlyList<ApiMethodDeclarationNode> methods,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string ApiName { get; } = apiName;
+    public ExpressionNode Endpoint { get; } = endpoint;
+    public ExpressionNode? ApiType { get; } = apiType;
+    public ExpressionNode? DefaultModel { get; } = defaultModel;
+    public IReadOnlyDictionary<string, ExpressionNode> Headers { get; } = headers ?? new Dictionary<string, ExpressionNode>();
+    public IReadOnlyList<ApiMethodDeclarationNode> Methods { get; } = methods;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class MainBlockNode(
     IReadOnlyList<StatementNode> statements,
     SourceSpan span)

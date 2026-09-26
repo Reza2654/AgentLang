@@ -10,7 +10,7 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInTools = new(StringComparer.OrdinalIgnoreCase)
     {
-        "browser", "filesystem", "terminal", "http", "calculator"
+        "browser", "filesystem", "terminal", "http", "calculator", "image", "vision"
     };
 
     private static readonly HashSet<string> BuiltInModels = new(StringComparer.OrdinalIgnoreCase)
@@ -155,6 +155,42 @@ public sealed class SemanticAnalyzer : AstVisitor
             case ImportApiDeclarationNode:
                 // importapi is processed during evaluation/execution
                 break;
+
+            case DatasetDeclarationNode dataset:
+                if (!_globalScope.TryDeclare(new Symbol(dataset.Name, SymbolKind.Dataset, dataset.Span, dataset)))
+                {
+                    _diagnostics.ReportError("AL2013", $"Duplicate dataset declaration '{dataset.Name}'", dataset.Span);
+                }
+                break;
+
+            case TrainDeclarationNode train:
+                if (!_globalScope.TryDeclare(new Symbol(train.ModelName, SymbolKind.TrainedModel, train.Span, train)))
+                {
+                    _diagnostics.ReportError("AL2014", $"Duplicate trained model declaration '{train.ModelName}'", train.Span);
+                }
+                _globalScope.DeclareOrAssign(new Symbol(train.ModelName, SymbolKind.ModelAlias, train.Span, train));
+                break;
+
+            case McpDeclarationNode mcp:
+                if (!_globalScope.TryDeclare(new Symbol(mcp.ServerName, SymbolKind.McpServer, mcp.Span, mcp)))
+                {
+                    _diagnostics.ReportError("AL2015", $"Duplicate MCP server declaration '{mcp.ServerName}'", mcp.Span);
+                }
+                _globalScope.TryDeclare(new Symbol(mcp.ServerName, SymbolKind.Tool, mcp.Span, mcp));
+                break;
+
+            case CustomApiDeclarationNode api:
+                if (!_globalScope.TryDeclare(new Symbol(api.ApiName, SymbolKind.CustomApi, api.Span, api)))
+                {
+                    _diagnostics.ReportError("AL2016", $"Duplicate API declaration '{api.ApiName}'", api.Span);
+                }
+                _globalScope.DeclareOrAssign(new Symbol(api.ApiName, SymbolKind.ModelAlias, api.Span, api));
+                _globalScope.TryDeclare(new Symbol(api.ApiName, SymbolKind.Tool, api.Span, api));
+                foreach (var method in api.Methods)
+                {
+                    _globalScope.TryDeclare(new Symbol($"{api.ApiName}.{method.Name}", SymbolKind.Tool, method.Span, method));
+                }
+                break;
         }
     }
 
@@ -211,10 +247,19 @@ public sealed class SemanticAnalyzer : AstVisitor
                         if (elem is IdentifierExpressionNode toolId)
                         {
                             var toolSym = _globalScope.Lookup(toolId.Name);
-                            if (toolSym == null || toolSym.Kind != SymbolKind.Tool)
+                            if (toolSym == null || (toolSym.Kind != SymbolKind.Tool && toolSym.Kind != SymbolKind.McpServer && toolSym.Kind != SymbolKind.CustomApi))
                             {
                                 string? suggestion = FindClosestMatch(toolId.Name, BuiltInTools.Concat(_globalScope.AllSymbols().Where(s => s.Kind == SymbolKind.Tool).Select(s => s.Name)));
                                 _diagnostics.ReportError("AL2006", $"Unknown tool '{toolId.Name}'", toolId.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
+                            }
+                        }
+                        else if (elem is MemberAccessExpressionNode memAccess && memAccess.Target is IdentifierExpressionNode targetId)
+                        {
+                            string fullName = $"{targetId.Name}.{memAccess.MemberName}";
+                            var s = _globalScope.Lookup(fullName) ?? _globalScope.Lookup(targetId.Name);
+                            if (s == null || (s.Kind != SymbolKind.Tool && s.Kind != SymbolKind.McpServer && s.Kind != SymbolKind.CustomApi))
+                            {
+                                _diagnostics.ReportError("AL2006", $"Unknown tool '{fullName}'", memAccess.Span);
                             }
                         }
                     }
@@ -477,6 +522,11 @@ public sealed class SemanticAnalyzer : AstVisitor
         }
     }
 
+    public override void Visit(NamedArgumentExpressionNode node)
+    {
+        node.Value.Accept(this);
+    }
+
     public override void Visit(TryCatchStatementNode node)
     {
         var tryScope = new Scope("try", _currentScope);
@@ -497,6 +547,19 @@ public sealed class SemanticAnalyzer : AstVisitor
             stmt.Accept(this);
 
         _currentScope = prevScope;
+    }
+
+    public override void Visit(LearnStatementNode node)
+    {
+        base.Visit(node);
+        if (node.DatasetRef is IdentifierExpressionNode idNode)
+        {
+            var sym = _currentScope.Lookup(idNode.Name) ?? _globalScope.Lookup(idNode.Name);
+            if (sym == null || sym.Kind != SymbolKind.Dataset)
+            {
+                _diagnostics.ReportWarning("AL2017", $"Unknown dataset '{idNode.Name}' in learn statement", idNode.Span);
+            }
+        }
     }
 
     private static string? FindClosestMatch(string target, IEnumerable<string> candidates)

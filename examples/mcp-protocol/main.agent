@@ -1,0 +1,31 @@
+// AgentLang v0.4.0 — Native Model Context Protocol (MCP) Example
+// Connects to an MCP server, automatically discovers exposed tools,
+// and invokes tools directly or allows agents to use them seamlessly.
+
+mcp devServer = "mock" {
+    env: {
+        "DEBUG": "true",
+        "ENV": "development"
+    }
+}
+
+agent DevOpsBot (tools: [devServer]) {
+    task checkSystem {
+        statusMsg = devServer.status()
+        print("DevOpsBot Server Status:", statusMsg)
+
+        echoMsg = devServer.echo(message: "AgentLang MCP handshake confirmed")
+        print("DevOpsBot Echo:", echoMsg)
+    }
+}
+
+main {
+    print("=== AgentLang v0.4.0 Native MCP System ===")
+    
+    // Direct MCP tool execution
+    directStatus = devServer.status()
+    print("Direct MCP status:", directStatus)
+
+    // Agent autonomous interaction with MCP server
+    agent DevOpsBot
+}

@@ -60,6 +60,18 @@ public enum TokenType
     Plan,
     Until,
 
+    // AI Training, MCP & Custom APIs (v0.4.0)
+    Dataset,
+    Train,
+    Validate,
+    Mcp,
+    Api,
+    Learn,
+    Preference,
+    Pair,
+    Image,
+    Vision,
+
     // Logical Operators
     And,
     Or,

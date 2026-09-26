@@ -60,12 +60,24 @@ public static class DoctorCommand
                        toolRegistry.GetTool("browser") != null &&
                        toolRegistry.GetTool("terminal") != null &&
                        toolRegistry.GetTool("http") != null &&
-                       toolRegistry.GetTool("calculator") != null;
+                       toolRegistry.GetTool("calculator") != null &&
+                       toolRegistry.GetTool("image") != null &&
+                       toolRegistry.GetTool("vision") != null;
 
-        PrintStatus(toolsOk, "Tool System", "filesystem, browser, terminal, http, calculator registered");
+        PrintStatus(toolsOk, "Tool System", "filesystem, browser, terminal, http, calculator, image, vision registered");
         if (!toolsOk) errors++;
 
-        // 5. Model Providers Check
+        // 5. AI Training & MCP Protocol Engine Check
+        var trainingEngine = new AiTrainingEngine();
+        var ds = trainingEngine.GetOrCreateDataset("DoctorQA", "qa");
+        ds.AddPair("DoctorPrompt", "DoctorAnswer");
+        PrintStatus(ds.Entries.Count == 1, "AI Training Engine", "Q&A, Preference, Vision dataset & tuning engine active");
+
+        var mcpClient = new AgentLang.Tools.MCP.McpClient("DoctorMock", "mock");
+        await mcpClient.InitializeAsync();
+        PrintStatus(mcpClient.IsInitialized && mcpClient.DiscoveredTools.Count > 0, "MCP Protocol Engine", "JSON-RPC 2.0 MCP Client & Tool Adapter active");
+
+        // 6. Model Providers Check
         var models = new ModelRegistry();
         var mock = models.Resolve("mock");
         var mockRes = await mock.GenerateAsync(new ModelRequest("mock", "ping"));

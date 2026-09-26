@@ -37,6 +37,8 @@ public sealed class ToolRegistry
         RegisterTool(new TerminalTool());
         RegisterTool(new HttpTool());
         RegisterTool(new CalculatorTool());
+        RegisterTool(new ImageTool());
+        RegisterTool(new VisionTool());
     }
 
     public void RegisterTool(ITool tool)
@@ -58,9 +60,9 @@ public sealed class ToolRegistry
         string details = string.Join(", ", arguments.Select(kv => $"{kv.Key}={kv.Value}"));
         await _securityEngine.AuthorizeAsync(agentName, policyName, capability, details, ct);
 
-        // 2. Locate tool by prefix (e.g. 'browser.search' -> tool 'browser')
+        // 2. Locate tool by prefix or exact capability
         string toolName = capability.Contains('.') ? capability.Split('.')[0] : capability;
-        if (!_tools.TryGetValue(toolName, out var tool))
+        if (!_tools.TryGetValue(toolName, out var tool) && !_tools.TryGetValue(capability, out tool))
         {
             return ToolResult.Fail($"Tool '{toolName}' is not registered");
         }

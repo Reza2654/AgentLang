@@ -198,3 +198,21 @@ public sealed class UntilStatementNode(
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
+
+public sealed class LearnStatementNode(
+    ExpressionNode datasetRef,
+    ExpressionNode inputOrPrompt,
+    ExpressionNode outputOrChosen,
+    ExpressionNode? rejected,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode DatasetRef { get; } = datasetRef;
+    public ExpressionNode InputOrPrompt { get; } = inputOrPrompt;
+    public ExpressionNode OutputOrChosen { get; } = outputOrChosen;
+    public ExpressionNode? Rejected { get; } = rejected;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+

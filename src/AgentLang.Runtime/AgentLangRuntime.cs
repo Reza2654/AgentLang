@@ -6,6 +6,7 @@ using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
 using AgentLang.Security;
 using AgentLang.Tools;
+using AgentLang.Tools.MCP;
 
 namespace AgentLang.Runtime;
 
@@ -32,6 +33,12 @@ public sealed class AgentLangRuntime
     private readonly Dictionary<string, ToolDeclarationNode> _toolDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CustomToolDeclarationNode> _customToolDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EventDeclarationNode> _eventDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DatasetDeclarationNode> _datasetDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TrainDeclarationNode> _trainDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, McpDeclarationNode> _mcpDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CustomApiDeclarationNode> _customApiDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, McpClient> _mcpClients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AiTrainingEngine _trainingEngine = new();
 
     private readonly Dictionary<string, AgentValue> _agentInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly RuntimeScope _globalScope = new("global");
@@ -49,6 +56,12 @@ public sealed class AgentLangRuntime
     public ToolRegistry ToolRegistry => _toolRegistry;
     public SecurityEngine SecurityEngine => _securityEngine;
     public IPersistentMemoryStore MemoryStore => _memoryStore;
+    public AiTrainingEngine TrainingEngine => _trainingEngine;
+    public IReadOnlyDictionary<string, McpClient> McpClients => _mcpClients;
+    public IReadOnlyDictionary<string, DatasetDeclarationNode> DatasetDefs => _datasetDefs;
+    public IReadOnlyDictionary<string, TrainDeclarationNode> TrainDefs => _trainDefs;
+    public IReadOnlyDictionary<string, McpDeclarationNode> McpDefs => _mcpDefs;
+    public IReadOnlyDictionary<string, CustomApiDeclarationNode> CustomApiDefs => _customApiDefs;
     public IReadOnlyDictionary<string, AgentValue> AgentInstances => _agentInstances;
     public IReadOnlyDictionary<string, SwarmDeclarationNode> SwarmDefs => _swarmDefs;
     public IReadOnlyDictionary<string, MultiAgentDeclarationNode> MultiAgentDefs => _multiAgentDefs;
@@ -185,6 +198,26 @@ public sealed class AgentLangRuntime
 
                 case ImportApiDeclarationNode apiDecl:
                     await ExecuteImportApiAsync(apiDecl, _globalScope, ct);
+                    break;
+
+                case DatasetDeclarationNode datasetDecl:
+                    _datasetDefs[datasetDecl.Name] = datasetDecl;
+                    await ExecuteDatasetDeclarationAsync(datasetDecl, _globalScope, ct);
+                    break;
+
+                case McpDeclarationNode mcpDecl:
+                    _mcpDefs[mcpDecl.ServerName] = mcpDecl;
+                    await ExecuteMcpDeclarationAsync(mcpDecl, _globalScope, ct);
+                    break;
+
+                case CustomApiDeclarationNode customApiDecl:
+                    _customApiDefs[customApiDecl.ApiName] = customApiDecl;
+                    await ExecuteCustomApiDeclarationAsync(customApiDecl, _globalScope, ct);
+                    break;
+
+                case TrainDeclarationNode trainDecl:
+                    _trainDefs[trainDecl.ModelName] = trainDecl;
+                    await ExecuteTrainDeclarationAsync(trainDecl, _globalScope, ct);
                     break;
             }
         }
@@ -423,6 +456,11 @@ public sealed class AgentLangRuntime
                     taskResult = ret.Value;
                     break;
                 }
+            }
+
+            if (taskResult == null && taskScope.TryGet("result", out var resVal))
+            {
+                taskResult = resVal;
             }
 
             taskValue.Status = "completed";
@@ -841,6 +879,231 @@ public sealed class AgentLangRuntime
             case ImportApiDeclarationNode apiDecl:
                 await ExecuteImportApiAsync(apiDecl, scope, ct);
                 break;
+
+            case LearnStatementNode learn:
+                await ExecuteLearnStatementAsync(learn, scope, ct);
+                break;
+
+            case DatasetDeclarationNode datasetDecl:
+                _datasetDefs[datasetDecl.Name] = datasetDecl;
+                await ExecuteDatasetDeclarationAsync(datasetDecl, scope, ct);
+                break;
+
+            case TrainDeclarationNode trainDecl:
+                _trainDefs[trainDecl.ModelName] = trainDecl;
+                await ExecuteTrainDeclarationAsync(trainDecl, scope, ct);
+                break;
+
+            case McpDeclarationNode mcpDecl:
+                _mcpDefs[mcpDecl.ServerName] = mcpDecl;
+                await ExecuteMcpDeclarationAsync(mcpDecl, scope, ct);
+                break;
+
+            case CustomApiDeclarationNode customApiDecl:
+                _customApiDefs[customApiDecl.ApiName] = customApiDecl;
+                await ExecuteCustomApiDeclarationAsync(customApiDecl, scope, ct);
+                break;
+        }
+    }
+
+    private async Task ExecuteDatasetDeclarationAsync(DatasetDeclarationNode dataset, RuntimeScope scope, CancellationToken ct)
+    {
+        var def = _trainingEngine.GetOrCreateDataset(dataset.Name, dataset.Mode);
+        foreach (var item in dataset.Items)
+        {
+            if (item is DatasetPairNode pair)
+            {
+                var inputVal = await EvaluateExpressionAsync(pair.Input, scope, ct);
+                var outputVal = await EvaluateExpressionAsync(pair.Output, scope, ct);
+                def.AddPair(inputVal?.ToString() ?? "", outputVal?.ToString() ?? "");
+            }
+            else if (item is DatasetPreferenceNode pref)
+            {
+                var promptVal = await EvaluateExpressionAsync(pref.Prompt, scope, ct);
+                var chosenVal = await EvaluateExpressionAsync(pref.Chosen, scope, ct);
+                var rejectedVal = await EvaluateExpressionAsync(pref.Rejected, scope, ct);
+                def.AddPreference(promptVal?.ToString() ?? "", chosenVal?.ToString() ?? "", rejectedVal?.ToString() ?? "");
+            }
+        }
+        scope.SetLocal(dataset.Name, def);
+    }
+
+    private async Task ExecuteTrainDeclarationAsync(TrainDeclarationNode train, RuntimeScope scope, CancellationToken ct)
+    {
+        string baseModel = "mock";
+        if (train.BaseModel != null)
+        {
+            var bmVal = await EvaluateExpressionAsync(train.BaseModel, scope, ct);
+            baseModel = bmVal?.ToString() ?? "mock";
+        }
+
+        string datasetName = "";
+        if (train.DatasetRef is IdentifierExpressionNode idNode)
+        {
+            datasetName = idNode.Name;
+        }
+        else if (train.DatasetRef != null)
+        {
+            var dVal = await EvaluateExpressionAsync(train.DatasetRef, scope, ct);
+            datasetName = dVal?.ToString() ?? "";
+        }
+
+        int epochs = 3;
+        if (train.Epochs != null)
+        {
+            var epVal = await EvaluateExpressionAsync(train.Epochs, scope, ct);
+            if (epVal != null && int.TryParse(epVal.ToString(), out int ep))
+                epochs = ep;
+        }
+
+        double lr = 0.001;
+        if (train.LearningRate != null)
+        {
+            var lrVal = await EvaluateExpressionAsync(train.LearningRate, scope, ct);
+            if (lrVal != null && double.TryParse(lrVal.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out double dLr))
+                lr = dLr;
+        }
+
+        TrainingValidationConfig? valConfig = null;
+        if (train.Validation != null)
+        {
+            var testCases = new List<(string Prompt, string Expected)>();
+            foreach (var tc in train.Validation.TestCases)
+            {
+                var p = await EvaluateExpressionAsync(tc.Prompt, scope, ct);
+                var e = await EvaluateExpressionAsync(tc.Expected, scope, ct);
+                testCases.Add((p?.ToString() ?? "", e?.ToString() ?? ""));
+            }
+
+            double minAcc = 0.0;
+            if (train.Validation.MinAccuracy != null)
+            {
+                var accVal = await EvaluateExpressionAsync(train.Validation.MinAccuracy, scope, ct);
+                if (accVal != null && double.TryParse(accVal.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out double dAcc))
+                    minAcc = dAcc;
+            }
+
+            valConfig = new TrainingValidationConfig(testCases, minAcc);
+        }
+
+        var config = new TrainingConfig(train.ModelName, baseModel, datasetName, epochs, lr, valConfig);
+        var result = await _trainingEngine.TrainAsync(config, _modelRegistry, _output, ct);
+        if (!result.Success)
+        {
+            throw new AgentLangRuntimeException($"Model training failed for '{train.ModelName}': {result.Error}", train.Span, errorCode: "AGT401");
+        }
+
+        scope.SetLocal(train.ModelName, train.ModelName);
+    }
+
+    private async Task ExecuteMcpDeclarationAsync(McpDeclarationNode mcp, RuntimeScope scope, CancellationToken ct)
+    {
+        var cmdVal = await EvaluateExpressionAsync(mcp.CommandOrPath, scope, ct);
+        string cmd = cmdVal?.ToString() ?? "mock";
+
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, vExpr) in mcp.Env)
+        {
+            var vVal = await EvaluateExpressionAsync(vExpr, scope, ct);
+            env[k] = vVal?.ToString() ?? "";
+        }
+
+        var client = new McpClient(mcp.ServerName, cmd, env);
+        await client.InitializeAsync(ct);
+        _mcpClients[mcp.ServerName] = client;
+
+        var adapter = new McpToolAdapter(client);
+        _toolRegistry.RegisterTool(adapter);
+        scope.SetLocal(mcp.ServerName, adapter);
+    }
+
+    private async Task ExecuteCustomApiDeclarationAsync(CustomApiDeclarationNode api, RuntimeScope scope, CancellationToken ct)
+    {
+        var endpointVal = await EvaluateExpressionAsync(api.Endpoint, scope, ct);
+        string endpoint = endpointVal?.ToString() ?? "http://localhost:11434";
+
+        string apiType = "rest";
+        if (api.ApiType != null)
+        {
+            var tVal = await EvaluateExpressionAsync(api.ApiType, scope, ct);
+            apiType = tVal?.ToString() ?? "rest";
+        }
+
+        string? defaultModel = null;
+        if (api.DefaultModel != null)
+        {
+            var mVal = await EvaluateExpressionAsync(api.DefaultModel, scope, ct);
+            defaultModel = mVal?.ToString();
+        }
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (hk, hvExpr) in api.Headers)
+        {
+            var hvVal = await EvaluateExpressionAsync(hvExpr, scope, ct);
+            headers[hk] = hvVal?.ToString() ?? "";
+        }
+
+        var methods = new List<CustomApiMethod>();
+        foreach (var m in api.Methods)
+        {
+            string? pathTemplate = null;
+            if (m.PathExpression != null)
+            {
+                var pVal = await EvaluateExpressionAsync(m.PathExpression, scope, ct);
+                pathTemplate = pVal?.ToString();
+            }
+            methods.Add(new CustomApiMethod(m.HttpMethod, m.Name, pathTemplate, m.Parameters.Select(p => p.Name).ToList()));
+        }
+
+        if (apiType.Equals("openai-compatible", StringComparison.OrdinalIgnoreCase) ||
+            apiType.Equals("ollama", StringComparison.OrdinalIgnoreCase) ||
+            apiType.Equals("vllm", StringComparison.OrdinalIgnoreCase) ||
+            apiType.Equals("lmstudio", StringComparison.OrdinalIgnoreCase))
+        {
+            string? apiKey = headers.TryGetValue("Authorization", out var auth) ? auth.Replace("Bearer ", "") : null;
+            var provider = new GenericOpenAiCompatibleProvider(
+                api.ApiName,
+                endpoint,
+                apiKey,
+                defaultModel != null ? [defaultModel, api.ApiName] : [api.ApiName]);
+            _modelRegistry.RegisterProvider(provider);
+            if (!string.IsNullOrEmpty(defaultModel))
+            {
+                _modelRegistry.RegisterAlias(api.ApiName, defaultModel);
+                _modelRegistry.RegisterAlias($"{api.ApiName}.{defaultModel}", defaultModel);
+            }
+        }
+
+        var apiTool = new CustomApiTool(api.ApiName, endpoint, apiType, headers, methods);
+        _toolRegistry.RegisterTool(apiTool);
+        scope.SetLocal(api.ApiName, apiTool);
+    }
+
+    private async Task ExecuteLearnStatementAsync(LearnStatementNode learn, RuntimeScope scope, CancellationToken ct)
+    {
+        string datasetName;
+        if (learn.DatasetRef is IdentifierExpressionNode idNode)
+        {
+            datasetName = idNode.Name;
+        }
+        else
+        {
+            var dVal = await EvaluateExpressionAsync(learn.DatasetRef, scope, ct);
+            datasetName = dVal?.ToString() ?? "";
+        }
+
+        var dataset = _trainingEngine.GetOrCreateDataset(datasetName);
+        var inVal = await EvaluateExpressionAsync(learn.InputOrPrompt, scope, ct);
+        var outVal = await EvaluateExpressionAsync(learn.OutputOrChosen, scope, ct);
+
+        if (learn.Rejected != null)
+        {
+            var rejVal = await EvaluateExpressionAsync(learn.Rejected, scope, ct);
+            dataset.AddPreference(inVal?.ToString() ?? "", outVal?.ToString() ?? "", rejVal?.ToString() ?? "");
+        }
+        else
+        {
+            dataset.AddPair(inVal?.ToString() ?? "", outVal?.ToString() ?? "");
         }
     }
 
@@ -1001,6 +1264,9 @@ public sealed class AgentLangRuntime
                     return sDef.Name;
 
                 return id.Name;
+
+            case NamedArgumentExpressionNode named:
+                return await EvaluateExpressionAsync(named.Value, scope, ct);
 
             case AiOperationExpressionNode aiOp:
                 return await ExecuteAiOperationAsync(aiOp, scope, ct);
@@ -1546,6 +1812,21 @@ public sealed class AgentLangRuntime
                 return line is "y" or "yes" or "true" or "1";
             }
 
+            if (calleeId.Name.Equals("image", StringComparison.OrdinalIgnoreCase))
+            {
+                string prompt = call.Arguments.Count > 0 ? (await EvaluateExpressionAsync(call.Arguments[0], scope, ct))?.ToString() ?? "" : "";
+                var res = await _toolRegistry.InvokeAsync(CurrentAgent?.Name ?? "agent", CurrentAgent?.PermissionPolicy, "image.generate", new Dictionary<string, object?> { ["prompt"] = prompt }, ct);
+                return res.Output;
+            }
+
+            if (calleeId.Name.Equals("vision", StringComparison.OrdinalIgnoreCase))
+            {
+                string img = call.Arguments.Count > 0 ? (await EvaluateExpressionAsync(call.Arguments[0], scope, ct))?.ToString() ?? "" : "";
+                string pr = call.Arguments.Count > 1 ? (await EvaluateExpressionAsync(call.Arguments[1], scope, ct))?.ToString() ?? "" : "Describe this image";
+                var res = await _toolRegistry.InvokeAsync(CurrentAgent?.Name ?? "agent", CurrentAgent?.PermissionPolicy, "vision.analyze", new Dictionary<string, object?> { ["image"] = img, ["prompt"] = pr }, ct);
+                return res.Output;
+            }
+
             // Task invocation by name within current agent
             if (CurrentAgent != null && CurrentAgent.Tasks.TryGetValue(calleeId.Name, out var tv))
             {
@@ -1570,26 +1851,58 @@ public sealed class AgentLangRuntime
         // Direct built-in tool invocation by member access, e.g. browser.search(...) or filesystem.read(...)
         if (call.Callee is MemberAccessExpressionNode toolMember &&
             toolMember.Target is IdentifierExpressionNode targetToolId &&
-            _toolRegistry.GetTool(targetToolId.Name) != null)
+            (_toolRegistry.GetTool(targetToolId.Name) != null || _toolRegistry.GetTool($"{targetToolId.Name}.{toolMember.MemberName}") != null))
         {
             string toolName = targetToolId.Name;
             string capability = $"{toolName}.{toolMember.MemberName}";
             var argsDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-            if (call.Arguments.Count > 0)
+
+            for (int i = 0; i < call.Arguments.Count; i++)
             {
-                var firstArg = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
-                if (firstArg is IDictionary<string, object?> mapArg)
+                var argNode = call.Arguments[i];
+                if (argNode is NamedArgumentExpressionNode named)
                 {
-                    foreach (var kv in mapArg) argsDict[kv.Key] = kv.Value;
+                    var val = await EvaluateExpressionAsync(named.Value, scope, ct);
+                    argsDict[named.Name] = val;
                 }
                 else
                 {
-                    argsDict["query"] = firstArg;
-                    argsDict["path"] = firstArg;
-                    argsDict["command"] = firstArg;
-                    argsDict["url"] = firstArg;
-                    argsDict["expr"] = firstArg;
+                    var argVal = await EvaluateExpressionAsync(argNode, scope, ct);
+                    if (argVal is IDictionary<string, object?> mapArg && call.Arguments.Count == 1)
+                    {
+                        foreach (var kv in mapArg) argsDict[kv.Key] = kv.Value;
+                    }
+                    else
+                    {
+                        argsDict[$"arg{i}"] = argVal;
+                        if (i == 0)
+                        {
+                            argsDict["query"] = argVal;
+                            argsDict["path"] = argVal;
+                            argsDict["command"] = argVal;
+                            argsDict["url"] = argVal;
+                            argsDict["expr"] = argVal;
+                            argsDict["prompt"] = argVal;
+                            argsDict["message"] = argVal;
+                            argsDict["input"] = argVal;
+                        }
+
+                        if (_customApiDefs.TryGetValue(targetToolId.Name, out var apiDef))
+                        {
+                            var methodDef = apiDef.Methods.FirstOrDefault(m => m.Name.Equals(toolMember.MemberName, StringComparison.OrdinalIgnoreCase));
+                            if (methodDef != null && i < methodDef.Parameters.Count)
+                            {
+                                argsDict[methodDef.Parameters[i].Name] = argVal;
+                            }
+                        }
+                    }
                 }
+            }
+
+            if (call.Arguments.Count == 2 && argsDict.ContainsKey("arg0") && argsDict.ContainsKey("arg1"))
+            {
+                argsDict["image"] = argsDict["arg0"];
+                argsDict["prompt"] = argsDict["arg1"];
             }
 
             var toolRes = await _toolRegistry.InvokeAsync(
@@ -1636,8 +1949,18 @@ public sealed class AgentLangRuntime
                 var fnScope = new RuntimeScope($"call:{fn.Name}", fn.Closure);
                 for (int i = 0; i < fn.Parameters.Count; i++)
                 {
-                    object? argVal = i < call.Arguments.Count ? await EvaluateExpressionAsync(call.Arguments[i], scope, ct) : null;
-                    fnScope.SetLocal(fn.Parameters[i], argVal);
+                    string pName = fn.Parameters[i];
+                    object? argVal = null;
+                    var namedArg = call.Arguments.OfType<NamedArgumentExpressionNode>().FirstOrDefault(na => na.Name.Equals(pName, StringComparison.OrdinalIgnoreCase));
+                    if (namedArg != null)
+                    {
+                        argVal = await EvaluateExpressionAsync(namedArg.Value, scope, ct);
+                    }
+                    else if (i < call.Arguments.Count && call.Arguments[i] is not NamedArgumentExpressionNode)
+                    {
+                        argVal = await EvaluateExpressionAsync(call.Arguments[i], scope, ct);
+                    }
+                    fnScope.SetLocal(pName, argVal);
                 }
 
                 foreach (var stmt in fn.Body)
@@ -1665,7 +1988,16 @@ public sealed class AgentLangRuntime
             for (int i = 0; i < customTool.Inputs.Count; i++)
             {
                 var inputParam = customTool.Inputs[i];
-                object? argVal = i < call.Arguments.Count ? await EvaluateExpressionAsync(call.Arguments[i], scope, ct) : null;
+                object? argVal = null;
+                var namedArg = call.Arguments.OfType<NamedArgumentExpressionNode>().FirstOrDefault(na => na.Name.Equals(inputParam.Name, StringComparison.OrdinalIgnoreCase));
+                if (namedArg != null)
+                {
+                    argVal = await EvaluateExpressionAsync(namedArg.Value, scope, ct);
+                }
+                else if (i < call.Arguments.Count && call.Arguments[i] is not NamedArgumentExpressionNode)
+                {
+                    argVal = await EvaluateExpressionAsync(call.Arguments[i], scope, ct);
+                }
                 argsDict[inputParam.Name] = argVal;
             }
 
@@ -1778,6 +2110,30 @@ public sealed class AgentLangRuntime
         {
             if (member.Equals("length", StringComparison.OrdinalIgnoreCase) || member.Equals("count", StringComparison.OrdinalIgnoreCase))
                 return list.Count;
+        }
+
+        // If target is DatasetDefinition
+        if (target is DatasetDefinition dDef)
+        {
+            if (member.Equals("count", StringComparison.OrdinalIgnoreCase) || member.Equals("length", StringComparison.OrdinalIgnoreCase))
+                return dDef.Entries.Count;
+            if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
+                return dDef.Name;
+            if (member.Equals("mode", StringComparison.OrdinalIgnoreCase))
+                return dDef.Mode;
+            if (member.Equals("entries", StringComparison.OrdinalIgnoreCase))
+                return dDef.Entries;
+            return dDef.Entries.Count;
+        }
+
+        // If target is ITool
+        if (target is ITool tool)
+        {
+            if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
+                return tool.Name;
+            if (member.Equals("capabilities", StringComparison.OrdinalIgnoreCase))
+                return tool.SupportedCapabilities;
+            return $"{tool.Name}.{member}";
         }
 
         // If target is string

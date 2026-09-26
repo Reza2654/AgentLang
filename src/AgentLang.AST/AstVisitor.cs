@@ -89,6 +89,72 @@ public abstract class AstVisitor : IAstVisitor
             item.Accept(this);
     }
 
+    public virtual void Visit(DatasetDeclarationNode node)
+    {
+        foreach (var item in node.Items)
+            item.Accept(this);
+    }
+
+    public virtual void Visit(DatasetPairNode node)
+    {
+        node.Input.Accept(this);
+        node.Output.Accept(this);
+    }
+
+    public virtual void Visit(DatasetPreferenceNode node)
+    {
+        node.Prompt.Accept(this);
+        node.Chosen.Accept(this);
+        node.Rejected.Accept(this);
+    }
+
+    public virtual void Visit(TrainDeclarationNode node)
+    {
+        node.BaseModel?.Accept(this);
+        node.DatasetRef?.Accept(this);
+        node.Epochs?.Accept(this);
+        node.LearningRate?.Accept(this);
+        node.Validation?.Accept(this);
+    }
+
+    public virtual void Visit(TrainValidationNode node)
+    {
+        foreach (var tc in node.TestCases)
+            tc.Accept(this);
+        node.MinAccuracy?.Accept(this);
+    }
+
+    public virtual void Visit(ValidationTestCaseNode node)
+    {
+        node.Prompt.Accept(this);
+        node.Expected.Accept(this);
+    }
+
+    public virtual void Visit(McpDeclarationNode node)
+    {
+        node.CommandOrPath.Accept(this);
+        foreach (var envVal in node.Env.Values)
+            envVal.Accept(this);
+    }
+
+    public virtual void Visit(CustomApiDeclarationNode node)
+    {
+        node.Endpoint.Accept(this);
+        node.ApiType?.Accept(this);
+        node.DefaultModel?.Accept(this);
+        foreach (var header in node.Headers.Values)
+            header.Accept(this);
+        foreach (var method in node.Methods)
+            method.Accept(this);
+    }
+
+    public virtual void Visit(ApiMethodDeclarationNode node)
+    {
+        foreach (var p in node.Parameters)
+            p.Accept(this);
+        node.PathExpression?.Accept(this);
+    }
+
     public virtual void Visit(BlockStatementNode node)
     {
         foreach (var stmt in node.Statements)
@@ -177,6 +243,14 @@ public abstract class AstVisitor : IAstVisitor
             stmt.Accept(this);
     }
 
+    public virtual void Visit(LearnStatementNode node)
+    {
+        node.DatasetRef.Accept(this);
+        node.InputOrPrompt.Accept(this);
+        node.OutputOrChosen.Accept(this);
+        node.Rejected?.Accept(this);
+    }
+
     public virtual void Visit(LiteralExpressionNode node) { }
     public virtual void Visit(IdentifierExpressionNode node) { }
 
@@ -223,4 +297,5 @@ public abstract class AstVisitor : IAstVisitor
 
     public virtual void Visit(DelegateExpressionNode node) => node.Message.Accept(this);
     public virtual void Visit(PlanExpressionNode node) => node.Prompt.Accept(this);
+    public virtual void Visit(NamedArgumentExpressionNode node) => node.Value.Accept(this);
 }

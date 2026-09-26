@@ -68,7 +68,20 @@ public sealed class Parser
                 TokenType.To or TokenType.Description or TokenType.Execute or
                 TokenType.Type or TokenType.ImportApi or TokenType.Swarm or
                 TokenType.Broadcast or TokenType.Delegate or TokenType.Wait or
-                TokenType.Await or TokenType.Plan or TokenType.Until;
+                TokenType.Await or TokenType.Plan or TokenType.Until or
+                TokenType.Dataset or TokenType.Train or TokenType.Validate or
+                TokenType.Mcp or TokenType.Api or TokenType.Learn or
+                TokenType.Preference or TokenType.Pair or TokenType.Image or
+                TokenType.Vision;
+
+    private static bool CanStartUnary(TokenType type) =>
+        type is TokenType.Exclamation or TokenType.Not or TokenType.Minus or
+                TokenType.NumberLiteral or TokenType.StringLiteral or TokenType.BooleanLiteral or
+                TokenType.NullLiteral or TokenType.OpenParen or TokenType.OpenBracket or
+                TokenType.OpenBrace or TokenType.Think or TokenType.Research or
+                TokenType.Plan or TokenType.Delegate or TokenType.Print or
+                TokenType.Input or TokenType.Type or TokenType.Image or TokenType.Vision ||
+                IsContextualIdentifier(type);
 
     private string ParseIdentifierName(string? customError = null)
     {
@@ -143,6 +156,22 @@ public sealed class Parser
             else if (Check(TokenType.Swarm))
             {
                 declarations.Add(ParseSwarmDeclaration());
+            }
+            else if (Check(TokenType.Dataset))
+            {
+                declarations.Add(ParseDatasetDeclaration());
+            }
+            else if (Check(TokenType.Train))
+            {
+                declarations.Add(ParseTrainDeclaration());
+            }
+            else if (Check(TokenType.Mcp))
+            {
+                declarations.Add(ParseMcpDeclaration());
+            }
+            else if (Check(TokenType.Api))
+            {
+                declarations.Add(ParseCustomApiDeclaration());
             }
             else
             {
@@ -654,6 +683,482 @@ public sealed class Parser
         return new SwarmDeclarationNode(name, coordinator, agentNames, strategy, body, new SourceSpan(swarmToken.Span.Start, closeBrace.Span.End, _source.FilePath));
     }
 
+    private DatasetDeclarationNode ParseDatasetDeclaration()
+    {
+        var startToken = Match(TokenType.Dataset);
+        string name = ParseIdentifierName("Expected dataset name identifier");
+        Match(TokenType.OpenBrace, "Expected '{' after dataset name");
+
+        string? mode = null;
+        var items = new List<DatasetItemNode>();
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Identifier) && Current.Text.Equals("mode", StringComparison.OrdinalIgnoreCase))
+            {
+                NextToken();
+                if (MatchOptional(TokenType.Colon, out _) || MatchOptional(TokenType.Equals, out _))
+                {
+                    var modeExpr = ParseExpression();
+                    mode = modeExpr is LiteralExpressionNode lit ? lit.Value?.ToString() : (modeExpr as IdentifierExpressionNode)?.Name;
+                    MatchOptional(TokenType.Semicolon, out _);
+                    MatchOptional(TokenType.Comma, out _);
+                    continue;
+                }
+            }
+
+            if (Check(TokenType.Pair) || (Check(TokenType.Identifier) && Current.Text.Equals("pair", StringComparison.OrdinalIgnoreCase)))
+            {
+                var pSpan = NextToken().Span;
+                Match(TokenType.OpenParen, "Expected '(' after pair");
+                ExpressionNode inputExpr;
+                ExpressionNode outputExpr;
+
+                if (Check(TokenType.Input) || (Check(TokenType.Identifier) && Current.Text.Equals("input", StringComparison.OrdinalIgnoreCase)))
+                {
+                    NextToken();
+                    if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    inputExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    if (Check(TokenType.Identifier) && Current.Text.Equals("output", StringComparison.OrdinalIgnoreCase))
+                    {
+                        NextToken();
+                        if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    }
+                    outputExpr = ParseExpression();
+                }
+                else
+                {
+                    inputExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    outputExpr = ParseExpression();
+                }
+                var closeP = Match(TokenType.CloseParen);
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                items.Add(new DatasetPairNode(inputExpr, outputExpr, new SourceSpan(pSpan.Start, closeP.Span.End, _source.FilePath)));
+                continue;
+            }
+
+            if (Check(TokenType.Preference) || (Check(TokenType.Identifier) && Current.Text.Equals("preference", StringComparison.OrdinalIgnoreCase)))
+            {
+                var pSpan = NextToken().Span;
+                Match(TokenType.OpenParen, "Expected '(' after preference");
+                ExpressionNode promptExpr;
+                ExpressionNode chosenExpr;
+                ExpressionNode rejectedExpr;
+
+                if (Check(TokenType.Identifier) && Current.Text.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                {
+                    NextToken();
+                    if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    promptExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    if (Check(TokenType.Identifier) && Current.Text.Equals("chosen", StringComparison.OrdinalIgnoreCase))
+                    {
+                        NextToken();
+                        if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    }
+                    chosenExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    if (Check(TokenType.Identifier) && Current.Text.Equals("rejected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        NextToken();
+                        if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    }
+                    rejectedExpr = ParseExpression();
+                }
+                else
+                {
+                    promptExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    chosenExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    rejectedExpr = ParseExpression();
+                }
+                var closeP = Match(TokenType.CloseParen);
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                items.Add(new DatasetPreferenceNode(promptExpr, chosenExpr, rejectedExpr, new SourceSpan(pSpan.Start, closeP.Span.End, _source.FilePath)));
+                continue;
+            }
+
+            _diagnostics.ReportError("AL1004", $"Unexpected token '{Current.Text}' in dataset declaration", Current.Span);
+            NextToken();
+        }
+
+        var endBrace = Match(TokenType.CloseBrace);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new DatasetDeclarationNode(name, mode, items, new SourceSpan(startToken.Span.Start, endBrace.Span.End, _source.FilePath));
+    }
+
+    private TrainDeclarationNode ParseTrainDeclaration()
+    {
+        var startToken = Match(TokenType.Train);
+        if (Check(TokenType.Model))
+        {
+            NextToken();
+        }
+        string modelName = ParseIdentifierName("Expected trained model name identifier");
+        Match(TokenType.OpenBrace, "Expected '{' after train declaration");
+
+        ExpressionNode? baseModel = null;
+        ExpressionNode? datasetRef = null;
+        ExpressionNode? epochs = null;
+        ExpressionNode? learningRate = null;
+        TrainValidationNode? validation = null;
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Validate) || (Check(TokenType.Identifier) && Current.Text.Equals("validate", StringComparison.OrdinalIgnoreCase)))
+            {
+                validation = ParseTrainValidation();
+                continue;
+            }
+
+            string key = ParseIdentifierName("Expected configuration key in train block (e.g. 'base', 'data', 'epochs', 'learning_rate', 'validate')");
+
+            if (MatchOptional(TokenType.Colon, out _) || MatchOptional(TokenType.Equals, out _))
+            {
+                var valExpr = ParseExpression();
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+
+                if (key.Equals("base", StringComparison.OrdinalIgnoreCase) || key.Equals("baseModel", StringComparison.OrdinalIgnoreCase))
+                    baseModel = valExpr;
+                else if (key.Equals("data", StringComparison.OrdinalIgnoreCase) || key.Equals("dataset", StringComparison.OrdinalIgnoreCase))
+                    datasetRef = valExpr;
+                else if (key.Equals("epochs", StringComparison.OrdinalIgnoreCase))
+                    epochs = valExpr;
+                else if (key.Equals("learning_rate", StringComparison.OrdinalIgnoreCase) || key.Equals("learningRate", StringComparison.OrdinalIgnoreCase) || key.Equals("lr", StringComparison.OrdinalIgnoreCase))
+                    learningRate = valExpr;
+            }
+            else
+            {
+                _diagnostics.ReportError("AL1004", $"Unexpected token '{Current.Text}' in train declaration", Current.Span);
+                NextToken();
+            }
+        }
+
+        var endBrace = Match(TokenType.CloseBrace);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new TrainDeclarationNode(modelName, baseModel, datasetRef, epochs, learningRate, validation, new SourceSpan(startToken.Span.Start, endBrace.Span.End, _source.FilePath));
+    }
+
+    private TrainValidationNode ParseTrainValidation()
+    {
+        var startSpan = Current.Span;
+        if (Check(TokenType.Validate) || (Check(TokenType.Identifier) && Current.Text.Equals("validate", StringComparison.OrdinalIgnoreCase)))
+        {
+            NextToken();
+        }
+        Match(TokenType.OpenBrace, "Expected '{' for validate block");
+
+        var testCases = new List<ValidationTestCaseNode>();
+        ExpressionNode? minAccuracy = null;
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Identifier) && (Current.Text.Equals("test", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("pair", StringComparison.OrdinalIgnoreCase)))
+            {
+                var tcSpan = NextToken().Span;
+                Match(TokenType.OpenParen);
+                ExpressionNode promptExpr;
+                ExpressionNode expectedExpr;
+
+                if (Check(TokenType.Identifier) && Current.Text.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                {
+                    NextToken();
+                    if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    promptExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    if (Check(TokenType.Identifier) && (Current.Text.Equals("expected", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("output", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        NextToken();
+                        if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                    }
+                    expectedExpr = ParseExpression();
+                }
+                else
+                {
+                    promptExpr = ParseExpression();
+                    Match(TokenType.Comma);
+                    expectedExpr = ParseExpression();
+                }
+                var closeP = Match(TokenType.CloseParen);
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                testCases.Add(new ValidationTestCaseNode(promptExpr, expectedExpr, new SourceSpan(tcSpan.Start, closeP.Span.End, _source.FilePath)));
+                continue;
+            }
+
+            if (Check(TokenType.Identifier) && (Current.Text.Equals("min_accuracy", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("minAccuracy", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("accuracy", StringComparison.OrdinalIgnoreCase)))
+            {
+                NextToken();
+                if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                var accExpr = ParseExpression();
+                if (MatchOptional(TokenType.Percent, out _))
+                {
+                    if (accExpr is LiteralExpressionNode lit && lit.Value != null)
+                    {
+                        if (double.TryParse(lit.Value.ToString(), out double d))
+                            accExpr = new LiteralExpressionNode(d / 100.0, accExpr.Span);
+                    }
+                }
+                minAccuracy = accExpr;
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                continue;
+            }
+
+            _diagnostics.ReportError("AL1005", $"Unexpected token '{Current.Text}' in validate block", Current.Span);
+            NextToken();
+        }
+
+        var endBrace = Match(TokenType.CloseBrace);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new TrainValidationNode(testCases, minAccuracy, new SourceSpan(startSpan.Start, endBrace.Span.End, _source.FilePath));
+    }
+
+    private McpDeclarationNode ParseMcpDeclaration()
+    {
+        var startToken = Match(TokenType.Mcp);
+        string serverName = ParseIdentifierName("Expected MCP server name identifier");
+        ExpressionNode commandOrPath;
+        var env = new Dictionary<string, ExpressionNode>(StringComparer.OrdinalIgnoreCase);
+
+        if (MatchOptional(TokenType.Equals, out _))
+        {
+            commandOrPath = ParseExpression();
+            if (Check(TokenType.OpenBrace))
+            {
+                Match(TokenType.OpenBrace);
+                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                {
+                    string key = ParseIdentifierName();
+                    if (key.Equals("env", StringComparison.OrdinalIgnoreCase))
+                    {
+                        MatchOptional(TokenType.Colon, out _);
+                        Match(TokenType.OpenBrace);
+                        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                        {
+                            var eKey = Current.Type == TokenType.StringLiteral ? Match(TokenType.StringLiteral).Value?.ToString() ?? "" : ParseIdentifierName();
+                            MatchOptional(TokenType.Colon, out _);
+                            var eVal = ParseExpression();
+                            env[eKey] = eVal;
+                            MatchOptional(TokenType.Comma, out _);
+                            MatchOptional(TokenType.Semicolon, out _);
+                        }
+                        Match(TokenType.CloseBrace);
+                    }
+                    MatchOptional(TokenType.Semicolon, out _);
+                    MatchOptional(TokenType.Comma, out _);
+                }
+                Match(TokenType.CloseBrace);
+            }
+        }
+        else
+        {
+            Match(TokenType.OpenBrace);
+            commandOrPath = new LiteralExpressionNode("", startToken.Span);
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                string key = ParseIdentifierName();
+                if (key.Equals("command", StringComparison.OrdinalIgnoreCase) || key.Equals("cmd", StringComparison.OrdinalIgnoreCase) || key.Equals("path", StringComparison.OrdinalIgnoreCase))
+                {
+                    MatchOptional(TokenType.Colon, out _);
+                    commandOrPath = ParseExpression();
+                }
+                else if (key.Equals("env", StringComparison.OrdinalIgnoreCase))
+                {
+                    MatchOptional(TokenType.Colon, out _);
+                    Match(TokenType.OpenBrace);
+                    while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                    {
+                        var eKey = Current.Type == TokenType.StringLiteral ? Match(TokenType.StringLiteral).Value?.ToString() ?? "" : ParseIdentifierName();
+                        MatchOptional(TokenType.Colon, out _);
+                        var eVal = ParseExpression();
+                        env[eKey] = eVal;
+                        MatchOptional(TokenType.Comma, out _);
+                        MatchOptional(TokenType.Semicolon, out _);
+                    }
+                    Match(TokenType.CloseBrace);
+                }
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+            }
+            Match(TokenType.CloseBrace);
+        }
+
+        MatchOptional(TokenType.Semicolon, out _);
+        return new McpDeclarationNode(serverName, commandOrPath, env, new SourceSpan(startToken.Span.Start, Current.Span.End, _source.FilePath));
+    }
+
+    private CustomApiDeclarationNode ParseCustomApiDeclaration()
+    {
+        var startToken = Match(TokenType.Api);
+        string apiName = ParseIdentifierName("Expected API name identifier");
+        Match(TokenType.OpenBrace, "Expected '{' after API name");
+
+        ExpressionNode? endpoint = null;
+        ExpressionNode? apiType = null;
+        ExpressionNode? defaultModel = null;
+        var headers = new Dictionary<string, ExpressionNode>(StringComparer.OrdinalIgnoreCase);
+        var methods = new List<ApiMethodDeclarationNode>();
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Identifier) && (Current.Text.Equals("get", StringComparison.OrdinalIgnoreCase) ||
+                                                Current.Text.Equals("post", StringComparison.OrdinalIgnoreCase) ||
+                                                Current.Text.Equals("put", StringComparison.OrdinalIgnoreCase) ||
+                                                Current.Text.Equals("delete", StringComparison.OrdinalIgnoreCase)))
+            {
+                var httpMethod = NextToken().Text.ToUpperInvariant();
+                string methodName = ParseIdentifierName("Expected API method name");
+                Match(TokenType.OpenParen);
+                var parameters = new List<ToolParameterNode>();
+                while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+                {
+                    var pStart = Current.Span;
+                    string pName = ParseIdentifierName();
+                    Match(TokenType.Colon);
+                    string pType = ParseIdentifierName();
+                    parameters.Add(new ToolParameterNode(pName, pType, new SourceSpan(pStart.Start, Current.Span.End, _source.FilePath)));
+                    if (!MatchOptional(TokenType.Comma, out _)) break;
+                }
+                Match(TokenType.CloseParen);
+
+                Match(TokenType.OpenBrace);
+                ExpressionNode? pathExpr = null;
+                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                {
+                    string mKey = ParseIdentifierName();
+                    if (mKey.Equals("path", StringComparison.OrdinalIgnoreCase) || mKey.Equals("url", StringComparison.OrdinalIgnoreCase))
+                    {
+                        MatchOptional(TokenType.Colon, out _);
+                        pathExpr = ParseExpression();
+                    }
+                    MatchOptional(TokenType.Semicolon, out _);
+                    MatchOptional(TokenType.Comma, out _);
+                }
+                var mEnd = Match(TokenType.CloseBrace);
+                MatchOptional(TokenType.Semicolon, out _);
+                methods.Add(new ApiMethodDeclarationNode(httpMethod, methodName, parameters, pathExpr, new SourceSpan(startToken.Span.Start, mEnd.Span.End, _source.FilePath)));
+                continue;
+            }
+
+            string key = ParseIdentifierName();
+            if (key.Equals("endpoint", StringComparison.OrdinalIgnoreCase) || key.Equals("url", StringComparison.OrdinalIgnoreCase))
+            {
+                MatchOptional(TokenType.Colon, out _);
+                endpoint = ParseExpression();
+            }
+            else if (key.Equals("type", StringComparison.OrdinalIgnoreCase))
+            {
+                MatchOptional(TokenType.Colon, out _);
+                apiType = ParseExpression();
+            }
+            else if (key.Equals("model", StringComparison.OrdinalIgnoreCase))
+            {
+                MatchOptional(TokenType.Colon, out _);
+                defaultModel = ParseExpression();
+            }
+            else if (key.Equals("headers", StringComparison.OrdinalIgnoreCase))
+            {
+                MatchOptional(TokenType.Colon, out _);
+                Match(TokenType.OpenBrace);
+                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                {
+                    var hKey = Current.Type == TokenType.StringLiteral ? Match(TokenType.StringLiteral).Value?.ToString() ?? "" : ParseIdentifierName();
+                    MatchOptional(TokenType.Colon, out _);
+                    var hVal = ParseExpression();
+                    headers[hKey] = hVal;
+                    MatchOptional(TokenType.Comma, out _);
+                    MatchOptional(TokenType.Semicolon, out _);
+                }
+                Match(TokenType.CloseBrace);
+            }
+
+            MatchOptional(TokenType.Semicolon, out _);
+            MatchOptional(TokenType.Comma, out _);
+        }
+
+        var endBrace = Match(TokenType.CloseBrace);
+        MatchOptional(TokenType.Semicolon, out _);
+        endpoint ??= new LiteralExpressionNode("http://localhost:11434", startToken.Span);
+        return new CustomApiDeclarationNode(apiName, endpoint, apiType, defaultModel, headers, methods, new SourceSpan(startToken.Span.Start, endBrace.Span.End, _source.FilePath));
+    }
+
+    private LearnStatementNode ParseLearnStatement()
+    {
+        var startToken = Match(TokenType.Learn);
+        if (Check(TokenType.Identifier) && (Current.Text.Equals("into", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("to", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("in", StringComparison.OrdinalIgnoreCase)))
+        {
+            NextToken();
+        }
+        else if (Check(TokenType.To) || Check(TokenType.In))
+        {
+            NextToken();
+        }
+
+        var datasetRef = ParsePrimary();
+        Match(TokenType.OpenParen, "Expected '(' after dataset reference in learn statement");
+
+        ExpressionNode inputOrPrompt;
+        ExpressionNode outputOrChosen;
+        ExpressionNode? rejected = null;
+
+        if (Check(TokenType.Input) || (Check(TokenType.Identifier) && Current.Text.Equals("input", StringComparison.OrdinalIgnoreCase)))
+        {
+            NextToken();
+            if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+            inputOrPrompt = ParseExpression();
+            Match(TokenType.Comma);
+            if (Check(TokenType.Identifier) && Current.Text.Equals("output", StringComparison.OrdinalIgnoreCase))
+            {
+                NextToken();
+                if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+            }
+            outputOrChosen = ParseExpression();
+        }
+        else if (Check(TokenType.Identifier) && Current.Text.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            NextToken();
+            if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+            inputOrPrompt = ParseExpression();
+            Match(TokenType.Comma);
+            if (Check(TokenType.Identifier) && Current.Text.Equals("chosen", StringComparison.OrdinalIgnoreCase))
+            {
+                NextToken();
+                if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+            }
+            outputOrChosen = ParseExpression();
+            if (MatchOptional(TokenType.Comma, out _))
+            {
+                if (Check(TokenType.Identifier) && Current.Text.Equals("rejected", StringComparison.OrdinalIgnoreCase))
+                {
+                    NextToken();
+                    if (!MatchOptional(TokenType.Colon, out _)) Match(TokenType.Equals);
+                }
+                rejected = ParseExpression();
+            }
+        }
+        else
+        {
+            inputOrPrompt = ParseExpression();
+            Match(TokenType.Comma);
+            outputOrChosen = ParseExpression();
+            if (MatchOptional(TokenType.Comma, out _))
+            {
+                rejected = ParseExpression();
+            }
+        }
+
+        var endParen = Match(TokenType.CloseParen);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new LearnStatementNode(datasetRef, inputOrPrompt, outputOrChosen, rejected, new SourceSpan(startToken.Span.Start, endParen.Span.End, _source.FilePath));
+    }
+
     private BroadcastStatementNode ParseBroadcastStatement()
     {
         var bToken = Match(TokenType.Broadcast);
@@ -728,6 +1233,16 @@ public sealed class Parser
             return ParseWaitStatement();
         if (Check(TokenType.ImportApi))
             return ParseImportApiDeclaration();
+        if (Check(TokenType.Learn))
+            return ParseLearnStatement();
+        if (Check(TokenType.Dataset))
+            return ParseDatasetDeclaration();
+        if (Check(TokenType.Train))
+            return ParseTrainDeclaration();
+        if (Check(TokenType.Mcp))
+            return ParseMcpDeclaration();
+        if (Check(TokenType.Api))
+            return ParseCustomApiDeclaration();
 
         // Agent / Swarm / MultiAgent invocation: "agent Researcher", "swarm ResearchSwarm"
         if ((Check(TokenType.Agent) || Check(TokenType.Swarm) || Check(TokenType.MultiAgent)) && IsContextualIdentifier(Lookahead.Type))
@@ -956,6 +1471,20 @@ public sealed class Parser
         while (Check(TokenType.Asterisk) || Check(TokenType.Slash) || Check(TokenType.Percent))
         {
             var opToken = NextToken();
+            if (opToken.Type == TokenType.Percent && !CanStartUnary(Current.Type))
+            {
+                // Postfix percentage: e.g. 80% -> 0.8
+                if (left is LiteralExpressionNode lit && lit.Value != null && double.TryParse(lit.Value.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal))
+                {
+                    left = new LiteralExpressionNode(numVal / 100.0, new SourceSpan(left.Span.Start, opToken.Span.End, _source.FilePath));
+                }
+                else
+                {
+                    left = new BinaryExpressionNode(left, BinaryOperator.Divide, new LiteralExpressionNode(100.0, opToken.Span), new SourceSpan(left.Span.Start, opToken.Span.End, _source.FilePath));
+                }
+                continue;
+            }
+
             var op = opToken.Type switch
             {
                 TokenType.Asterisk => BinaryOperator.Multiply,
@@ -999,7 +1528,18 @@ public sealed class Parser
                 var args = new List<ExpressionNode>();
                 while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
                 {
-                    args.Add(ParseExpression());
+                    if (IsContextualIdentifier(Current.Type) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+                    {
+                        var argNameTok = NextToken();
+                        NextToken(); // consume : or =
+                        var valExpr = ParseExpression();
+                        args.Add(new NamedArgumentExpressionNode(argNameTok.Text, valExpr, new SourceSpan(argNameTok.Span.Start, valExpr.Span.End, _source.FilePath)));
+                    }
+                    else
+                    {
+                        args.Add(ParseExpression());
+                    }
+
                     if (Check(TokenType.Comma))
                         Match(TokenType.Comma);
                     else
@@ -1047,7 +1587,18 @@ public sealed class Parser
             var args = new List<ExpressionNode>();
             while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
             {
-                args.Add(ParseExpression());
+                if (IsContextualIdentifier(Current.Type) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+                {
+                    var argNameTok = NextToken();
+                    NextToken(); // consume : or =
+                    var valExpr = ParseExpression();
+                    args.Add(new NamedArgumentExpressionNode(argNameTok.Text, valExpr, new SourceSpan(argNameTok.Span.Start, valExpr.Span.End, _source.FilePath)));
+                }
+                else
+                {
+                    args.Add(ParseExpression());
+                }
+
                 if (Check(TokenType.Comma))
                     Match(TokenType.Comma);
                 else
