@@ -48,6 +48,11 @@ public sealed class Scope
         return true;
     }
 
+    public void DeclareOrAssign(Symbol symbol)
+    {
+        _symbols[symbol.Name] = symbol;
+    }
+
     public Symbol? Lookup(string name)
     {
         if (_symbols.TryGetValue(name, out var symbol))

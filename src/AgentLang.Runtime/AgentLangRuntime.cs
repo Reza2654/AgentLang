@@ -38,7 +38,12 @@ public sealed class AgentLangRuntime
     private int _callDepth = 0;
     private const int MaxCallDepth = 256;
 
-    public AgentValue? CurrentAgent { get; private set; }
+    private readonly AsyncLocal<AgentValue?> _currentAgent = new();
+    public AgentValue? CurrentAgent
+    {
+        get => _currentAgent.Value;
+        private set => _currentAgent.Value = value;
+    }
     public EventBus EventBus => _eventBus;
     public ModelRegistry ModelRegistry => _modelRegistry;
     public ToolRegistry ToolRegistry => _toolRegistry;
@@ -224,6 +229,12 @@ public sealed class AgentLangRuntime
 
         var agentScope = new RuntimeScope($"agent:{agentName}", parentScope);
         agentScope.SetLocal(agentName, agentInstance);
+
+        // Bring pre-existing context (from delegation or prior calls) into agent scope
+        foreach (var (k, v) in agentInstance.Context)
+        {
+            agentScope.SetLocal(k, v);
+        }
 
         try
         {
@@ -476,7 +487,19 @@ public sealed class AgentLangRuntime
                 }
             }
 
-            await Task.WhenAll(tasks);
+            try
+            {
+                await Task.WhenAll(tasks);
+            }
+            catch (Exception)
+            {
+                var failed = tasks.Where(t => t.IsFaulted).Select(t => t.Exception?.GetBaseException().Message ?? "Task failed").ToList();
+                if (failed.Count > 1)
+                {
+                    throw new AgentLangRuntimeException($"Swarm '{swarmName}' encountered {failed.Count} parallel failures: {string.Join("; ", failed)}", errorCode: "AGT308");
+                }
+                throw;
+            }
         }
         else
         {
@@ -1036,6 +1059,12 @@ public sealed class AgentLangRuntime
         if (target == null)
             return null;
 
+        if (target is AgentValue or OperationValue or TaskValue or AgentMessage)
+        {
+            string key = index?.ToString() ?? string.Empty;
+            return ResolveMemberAccess(target, key);
+        }
+
         if (target is IList<object?> list)
         {
             int i = Convert.ToInt32(index, CultureInfo.InvariantCulture);
@@ -1069,19 +1098,6 @@ public sealed class AgentLangRuntime
             return str[i].ToString();
         }
 
-        if (target is AgentValue av)
-        {
-            string key = index?.ToString() ?? string.Empty;
-            if (key.Equals("inbox", StringComparison.OrdinalIgnoreCase))
-                return av.Inbox;
-            if (av.Context.TryGetValue(key, out var cv))
-                return cv;
-            if (av.Variables.TryGetValue(key, out var vv))
-                return vv;
-            if (av.Tasks.TryGetValue(key, out var tv))
-                return tv;
-        }
-
         return null;
     }
 
@@ -1108,24 +1124,39 @@ public sealed class AgentLangRuntime
     {
         var msgVal = await EvaluateExpressionAsync(delExpr.Message, scope, ct);
 
-        if (!_agentDefs.ContainsKey(delExpr.TargetAgent))
+        string targetAgentName = delExpr.TargetAgent;
+        string? targetTaskName = null;
+        if (targetAgentName.Contains('.'))
         {
-            throw new AgentLangRuntimeException($"Cannot delegate to unknown agent '{delExpr.TargetAgent}'", errorCode: "AGT306");
+            var parts = targetAgentName.Split('.');
+            targetAgentName = parts[0];
+            targetTaskName = parts[1];
         }
 
-        var targetInstance = _agentInstances.TryGetValue(delExpr.TargetAgent, out var existing)
+        if (!_agentDefs.ContainsKey(targetAgentName))
+        {
+            throw new AgentLangRuntimeException($"Cannot delegate to unknown agent '{targetAgentName}'", errorCode: "AGT306");
+        }
+
+        var targetInstance = _agentInstances.TryGetValue(targetAgentName, out var existing)
             ? existing
-            : new AgentValue(delExpr.TargetAgent);
-        _agentInstances[delExpr.TargetAgent] = targetInstance;
+            : new AgentValue(targetAgentName);
+        _agentInstances[targetAgentName] = targetInstance;
 
         var delMsg = new AgentMessage(msgVal, CurrentAgent?.Name, "delegation");
         targetInstance.Inbox.Add(delMsg);
         targetInstance.Context["query"] = msgVal;
         targetInstance.Context["delegated_task"] = msgVal;
 
-        await _eventBus.PublishAsync($"{delExpr.TargetAgent}.message", delMsg);
+        await _eventBus.PublishAsync($"{targetAgentName}.message", delMsg);
 
-        var executedAgent = await ExecuteAgentAsync(delExpr.TargetAgent, scope, ct);
+        var executedAgent = await ExecuteAgentAsync(targetAgentName, scope, ct);
+
+        // If specific task was requested, return that task's result
+        if (targetTaskName != null && executedAgent.Tasks.TryGetValue(targetTaskName, out var specificTask))
+        {
+            return specificTask.Result is OperationValue op ? op.Result : specificTask.Result;
+        }
 
         // Find result from executed agent
         if (executedAgent.Tasks.Count > 0)

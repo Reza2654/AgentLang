@@ -606,7 +606,15 @@ public sealed class Parser
             {
                 NextToken(); // coordinator
                 NextToken(); // : or =
-                coordinator = ParseIdentifierName();
+                if (Check(TokenType.StringLiteral))
+                {
+                    coordinator = Current.Value?.ToString() ?? Current.Text;
+                    NextToken();
+                }
+                else
+                {
+                    coordinator = ParseIdentifierName();
+                }
                 MatchOptional(TokenType.Semicolon, out _);
             }
             else if (Current.Text.Equals("strategy", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
@@ -614,7 +622,12 @@ public sealed class Parser
                 NextToken(); // strategy
                 NextToken(); // : or =
                 var expr = ParseExpression();
-                strategy = expr is LiteralExpressionNode lit ? lit.Value?.ToString() : expr.ToString();
+                if (expr is LiteralExpressionNode lit)
+                    strategy = lit.Value?.ToString();
+                else if (expr is IdentifierExpressionNode idNode)
+                    strategy = idNode.Name;
+                else
+                    strategy = expr.ToString();
                 MatchOptional(TokenType.Semicolon, out _);
             }
             else if (Current.Text.Equals("agents", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
@@ -1065,13 +1078,19 @@ public sealed class Parser
             return new PlanExpressionNode(promptExpr, new SourceSpan(planToken.Span.Start, endSpan.End, _source.FilePath));
         }
 
-        // Delegation Operation: delegate "task" to AgentName
+        // Delegation Operation: delegate "task" to AgentName[.TaskName]
         if (Check(TokenType.Delegate))
         {
             var delToken = NextToken();
             var msgExpr = ParseExpression();
             Match(TokenType.To, "Expected 'to' after delegated message (e.g. delegate 'task' to AgentName)");
             string target = ParseIdentifierName("Expected target agent name after 'to'");
+            if (Check(TokenType.Dot))
+            {
+                NextToken(); // dot
+                string taskName = ParseIdentifierName("Expected task name after '.'");
+                target = $"{target}.{taskName}";
+            }
             return new DelegateExpressionNode(msgExpr, target, new SourceSpan(delToken.Span.Start, Current.Span.End, _source.FilePath));
         }
 

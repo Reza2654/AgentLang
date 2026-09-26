@@ -108,4 +108,89 @@ public class SemanticTests
 
         Assert.False(analyzer.Diagnostics.HasErrors);
     }
+
+    [Fact]
+    public void DetectsUnknownDelegationTargetWithSuggestion()
+    {
+        string source = """
+            agent Analyst { }
+
+            agent Coordinator {
+                task delegateTask {
+                    res = delegate "examine" to Analist
+                }
+            }
+            """;
+        var sourceText = new SourceText(source);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        var analyzer = new SemanticAnalyzer();
+        analyzer.Analyze(program);
+
+        Assert.True(analyzer.Diagnostics.HasErrors);
+        var err = analyzer.Diagnostics.Diagnostics.First(d => d.Id == "AL2016");
+        Assert.Contains("Cannot delegate: unknown agent 'Analist'", err.Message);
+        Assert.NotNull(err.Suggestion);
+        Assert.Contains("Analyst", err.Suggestion);
+    }
+
+    [Fact]
+    public void AllowsBuiltinConstantsWithoutWarning()
+    {
+        string source = """
+            agent MemoryAgent (
+                memory = short_term
+            ) {
+                task work {
+                    s = sequential
+                    p = parallel
+                }
+            }
+            """;
+        var sourceText = new SourceText(source);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        var analyzer = new SemanticAnalyzer();
+        analyzer.Analyze(program);
+
+        Assert.False(analyzer.Diagnostics.HasErrors);
+        Assert.Empty(analyzer.Diagnostics.Warnings);
+    }
+
+    [Fact]
+    public void AllowsChildAgentsDeclaredInsideSwarm()
+    {
+        string source = """
+            swarm AnalysisSwarm {
+                coordinator: Lead
+                strategy: parallel
+
+                agent Lead {
+                    task coordinate {
+                        print("Coordinating")
+                    }
+                }
+
+                agent Worker {
+                    task work {
+                        print("Working")
+                    }
+                }
+            }
+
+            main {
+                agent Lead
+            }
+            """;
+        var sourceText = new SourceText(source);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        var analyzer = new SemanticAnalyzer();
+        analyzer.Analyze(program);
+
+        Assert.False(analyzer.Diagnostics.HasErrors);
+    }
 }

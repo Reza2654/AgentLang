@@ -796,4 +796,181 @@ public class RuntimeTests
         Assert.Contains("Worker completed", result);
         Assert.Contains("All done", result);
     }
+
+    [Fact]
+    public async Task ExecutesIndexAccessOnOperationAndTaskValues()
+    {
+        string source = """
+            agent Analyst (model = mock) {
+                task analyze {
+                    ans = think("Analyze trends")
+                    statusVal = ans["status"]
+                    resultVal = ans["result"]
+                    print("Status: " + statusVal)
+                    print("Result: " + resultVal)
+                    return ans
+                }
+            }
+
+            main {
+                agent Analyst
+                taskStatus = Analyst.analyze["status"]
+                print("Task status via index: " + taskStatus)
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Status: completed", result);
+        Assert.Contains("Result: Trend Analysis", result);
+        Assert.Contains("Task status via index: completed", result);
+    }
+
+    [Fact]
+    public async Task ExecutesDelegationWithoutExplicitContextDeclaration()
+    {
+        string source = """
+            agent Worker (model = mock) {
+                task doWork {
+                    print("Received query: " + query)
+                    return "Completed: " + query
+                }
+            }
+
+            agent Manager {
+                task manage {
+                    r = delegate "Process document" to Worker
+                    print("Manager received: " + r)
+                }
+            }
+
+            main {
+                agent Manager
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Received query: Process document", result);
+        Assert.Contains("Manager received: Completed: Process document", result);
+    }
+
+    [Fact]
+    public async Task ExecutesDottedTaskDelegation()
+    {
+        string source = """
+            agent Specialist (model = mock) {
+                task taskA {
+                    return "A"
+                }
+
+                task taskB {
+                    return "B: " + query
+                }
+            }
+
+            agent Caller {
+                task run {
+                    res = delegate "important payload" to Specialist.taskB
+                    print("Caller got: " + res)
+                }
+            }
+
+            main {
+                agent Caller
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("Caller got: B: important payload", result);
+    }
+
+    [Fact]
+    public async Task ExecutesSwarmWithIdentifierAndStringCoordinatorAndStrategy()
+    {
+        string source = """
+            swarm PipelineSwarm {
+                coordinator: "CoordinatorAgent"
+                strategy: parallel
+
+                agent WorkerA (model = mock) {
+                    task doA {
+                        print("WorkerA finished")
+                    }
+                }
+
+                agent WorkerB (model = mock) {
+                    task doB {
+                        print("WorkerB finished")
+                    }
+                }
+
+                agent CoordinatorAgent (model = mock) {
+                    task synthesize {
+                        print("Coordinator finished")
+                    }
+                }
+            }
+
+            main {
+                swarm PipelineSwarm
+            }
+            """;
+
+        var parser = new Parser.Parser(new SourceText(source));
+        var program = parser.ParseProgram();
+        var (runtime, output) = CreateTestRuntime();
+
+        await runtime.ExecuteProgramAsync(program);
+
+        string result = output.ToString();
+        Assert.Contains("WorkerA finished", result);
+        Assert.Contains("WorkerB finished", result);
+        Assert.Contains("Coordinator finished", result);
+    }
+
+    [Fact]
+    public void FormatCodePreservesBracesInsideStringsAndComments()
+    {
+        string messyCode = """
+agent CodeGen {
+task generate {
+print("JSON: { name: 'test', id: 1 }") // prints { braced } json
+if true {
+print("inner")
+}
+}
+}
+""";
+
+        string formatted = AgentLang.Cli.FormatCommand.FormatCode(messyCode);
+        string expected = """
+agent CodeGen {
+    task generate {
+        print("JSON: { name: 'test', id: 1 }") // prints { braced } json
+        if true {
+            print("inner")
+        }
+    }
+}
+""";
+
+        Assert.Equal(expected.Replace("\r\n", "\n").Trim(), formatted.Replace("\r\n", "\n").Trim());
+    }
 }

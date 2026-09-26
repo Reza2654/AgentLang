@@ -208,6 +208,16 @@ public sealed class HttpTool : ITool
                 return ToolResult.Ok(response);
             }
 
+            if (capability.Equals("http.post", StringComparison.OrdinalIgnoreCase))
+            {
+                string body = arguments.TryGetValue("body", out var b) ? b?.ToString() ?? "" : "";
+                string contentType = arguments.TryGetValue("contentType", out var ctHeader) ? ctHeader?.ToString() ?? "application/json" : "application/json";
+                using var postContent = new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, contentType);
+                var postRes = await _httpClient.PostAsync(url, postContent, ct);
+                string responseBody = await postRes.Content.ReadAsStringAsync(ct);
+                return ToolResult.Ok(responseBody);
+            }
+
             return ToolResult.Fail($"Unsupported HTTP capability '{capability}'");
         }
         catch (Exception ex)

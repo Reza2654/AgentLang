@@ -15,7 +15,7 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInModels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "GPT", "Claude", "Gemini", "Mock", "Test"
+        "GPT", "Claude", "Gemini", "Mock", "Test", "fast", "mock", "test", "gemini", "openai", "claude", "tavily"
     };
 
     private static readonly HashSet<string> BuiltInFunctions = new(StringComparer.Ordinal)
@@ -109,9 +109,14 @@ public sealed class SemanticAnalyzer : AstVisitor
                 break;
 
             case ModelDeclarationNode mdl:
-                if (!_globalScope.TryDeclare(new Symbol(mdl.Alias, SymbolKind.ModelAlias, mdl.Span, mdl)))
+                var existingMdl = _globalScope.LookupLocal(mdl.Alias);
+                if (existingMdl != null && existingMdl.Metadata is ModelDeclarationNode)
                 {
                     _diagnostics.ReportError("AL2012", $"Duplicate model declaration '{mdl.Alias}'", mdl.Span);
+                }
+                else
+                {
+                    _globalScope.DeclareOrAssign(new Symbol(mdl.Alias, SymbolKind.ModelAlias, mdl.Span, mdl));
                 }
                 break;
 
@@ -138,6 +143,13 @@ public sealed class SemanticAnalyzer : AstVisitor
                 {
                     _diagnostics.ReportError("AL2004", $"Duplicate swarm declaration '{swarm.Name}'", swarm.Span);
                 }
+                foreach (var item in swarm.Body)
+                {
+                    if (item is AgentDeclarationNode childAgent)
+                    {
+                        _globalScope.TryDeclare(new Symbol(childAgent.Name, SymbolKind.Agent, childAgent.Span, childAgent));
+                    }
+                }
                 break;
 
             case ImportApiDeclarationNode:
@@ -151,6 +163,16 @@ public sealed class SemanticAnalyzer : AstVisitor
         var swarmScope = new Scope($"swarm:{node.Name}", _currentScope);
         var prevScope = _currentScope;
         _currentScope = swarmScope;
+
+        foreach (var item in node.Body)
+        {
+            if (item is AgentDeclarationNode childAgent)
+            {
+                _currentScope.TryDeclare(new Symbol(childAgent.Name, SymbolKind.Agent, childAgent.Span, childAgent));
+                _globalScope.TryDeclare(new Symbol(childAgent.Name, SymbolKind.Agent, childAgent.Span, childAgent));
+            }
+        }
+
         foreach (var item in node.Body)
         {
             item.Accept(this);
@@ -419,12 +441,27 @@ public sealed class SemanticAnalyzer : AstVisitor
         var sym = _currentScope.Lookup(node.Name);
         if (sym == null)
         {
-            // Check if it's a known model or function or operation
-            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name) || BuiltInModels.Contains(node.Name))
+            // Check if it's a known model or function or operation or constant
+            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name) || BuiltInModels.Contains(node.Name) || BuiltInConstants.Contains(node.Name))
                 return;
 
             string? suggestion = FindClosestMatch(node.Name, _currentScope.AllSymbols().Select(s => s.Name));
             _diagnostics.ReportWarning("AL2010", $"Reference to unresolved symbol '{node.Name}'", node.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
+        }
+    }
+
+    public override void Visit(DelegateExpressionNode node)
+    {
+        node.Message.Accept(this);
+        string agentName = node.TargetAgent.Contains('.')
+            ? node.TargetAgent.Split('.')[0]
+            : node.TargetAgent;
+
+        var sym = _currentScope.Lookup(agentName) ?? _globalScope.Lookup(agentName);
+        if (sym == null || (sym.Kind != SymbolKind.Agent && sym.Kind != SymbolKind.Variable))
+        {
+            string? suggestion = FindClosestMatch(agentName, _globalScope.AllSymbols().Where(s => s.Kind == SymbolKind.Agent).Select(s => s.Name));
+            _diagnostics.ReportError("AL2016", $"Cannot delegate: unknown agent '{agentName}'", node.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
         }
     }
 

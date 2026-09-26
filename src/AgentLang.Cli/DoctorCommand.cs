@@ -12,7 +12,7 @@ public static class DoctorCommand
     public static async Task<int> RunAsync()
     {
         Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine("AgentLang Doctor — System & Environment Diagnostics");
+        Console.WriteLine($"AgentLang v{Program.Version} Doctor — System & Environment Diagnostics");
         Console.WriteLine("====================================================\n");
         Console.ResetColor();
 

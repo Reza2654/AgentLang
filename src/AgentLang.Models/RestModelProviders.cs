@@ -90,11 +90,14 @@ public sealed class OpenAiModelProvider : IModelProvider
 
             string responseJson = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(responseJson);
-            string content = doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? string.Empty;
+            string content = string.Empty;
+            if (doc.RootElement.TryGetProperty("choices", out var choices) &&
+                choices.GetArrayLength() > 0 &&
+                choices[0].TryGetProperty("message", out var msgElem) &&
+                msgElem.TryGetProperty("content", out var contentElem))
+            {
+                content = contentElem.GetString() ?? string.Empty;
+            }
 
             int tokens = doc.RootElement.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var totalTokens)
                 ? totalTokens.GetInt32()
@@ -206,12 +209,20 @@ public sealed class GeminiModelProvider : IModelProvider
 
             string responseJson = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(responseJson);
-            string resultText = doc.RootElement
-                .GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString() ?? string.Empty;
+            string resultText = string.Empty;
+            if (doc.RootElement.TryGetProperty("candidates", out var candidates) &&
+                candidates.GetArrayLength() > 0 &&
+                candidates[0].TryGetProperty("content", out var candContent) &&
+                candContent.TryGetProperty("parts", out var parts) &&
+                parts.GetArrayLength() > 0 &&
+                parts[0].TryGetProperty("text", out var textElem))
+            {
+                resultText = textElem.GetString() ?? string.Empty;
+            }
+            else if (doc.RootElement.TryGetProperty("promptFeedback", out var pf))
+            {
+                return ModelResponse.Failed($"Gemini blocked prompt: {pf}", actualModel);
+            }
 
             return new ModelResponse(resultText, actualModel, 0, sw.Elapsed, true);
         }
@@ -305,10 +316,13 @@ public sealed class AnthropicModelProvider : IModelProvider
 
             string responseJson = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(responseJson);
-            string resultText = doc.RootElement
-                .GetProperty("content")[0]
-                .GetProperty("text")
-                .GetString() ?? string.Empty;
+            string resultText = string.Empty;
+            if (doc.RootElement.TryGetProperty("content", out var contentArr) &&
+                contentArr.GetArrayLength() > 0 &&
+                contentArr[0].TryGetProperty("text", out var textElem))
+            {
+                resultText = textElem.GetString() ?? string.Empty;
+            }
 
             return new ModelResponse(resultText, actualModel, 0, sw.Elapsed, true);
         }

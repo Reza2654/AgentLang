@@ -95,10 +95,9 @@ public static class FormatCommand
                 continue;
             }
 
-            int closeCount = line.Count(c => c == '}');
-            int openCount = line.Count(c => c == '{');
+            var (openCount, closeCount, startsWithClose) = AnalyzeLineBraces(line);
 
-            if (line.StartsWith('}'))
+            if (startsWithClose)
             {
                 indent = Math.Max(0, indent - 1);
             }
@@ -109,16 +108,80 @@ public static class FormatCommand
             }
             sb.AppendLine(line);
 
-            if (!line.StartsWith('}') && openCount > closeCount)
+            if (!startsWithClose && openCount > closeCount)
             {
                 indent += (openCount - closeCount);
             }
-            else if (line.StartsWith('}') && openCount > (closeCount - 1))
+            else if (startsWithClose && openCount > (closeCount - 1))
             {
                 indent += openCount - (closeCount - 1);
             }
         }
 
         return sb.ToString().TrimEnd() + Environment.NewLine;
+    }
+
+    private static (int open, int close, bool startsWithClose) AnalyzeLineBraces(string line)
+    {
+        int open = 0;
+        int close = 0;
+        bool inString = false;
+        bool escape = false;
+        bool firstBraceSeen = false;
+        bool startsWithClose = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+
+            if (inString)
+            {
+                if (escape)
+                {
+                    escape = false;
+                }
+                else if (c == '\\')
+                {
+                    escape = true;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+                continue;
+            }
+
+            // Check for comment //
+            if (c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+            {
+                break;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '{')
+            {
+                if (!firstBraceSeen)
+                {
+                    firstBraceSeen = true;
+                }
+                open++;
+            }
+            else if (c == '}')
+            {
+                if (!firstBraceSeen)
+                {
+                    firstBraceSeen = true;
+                    startsWithClose = true;
+                }
+                close++;
+            }
+        }
+
+        return (open, close, startsWithClose);
     }
 }
