@@ -178,4 +178,69 @@ public class AutonomousAgentTests
         Assert.Equal(2, agent.History.Count);
         Assert.Equal("Message 2", agent.History[0].Content);
     }
+
+    [Fact]
+    public async Task AgentSolve_OfflineCodeBugFixing_AnalyzesAndFixesCodeOnDisk()
+    {
+        string testDir = "test_dir_23";
+        if (Directory.Exists(testDir)) Directory.Delete(testDir, true);
+        Directory.CreateDirectory(testDir);
+
+        string testFilePath = Path.Combine(testDir, "calculator.py");
+        string buggyCode = """
+        def divide(a, b):
+            return a / b
+
+        prin("Testing calculator...")
+        result = divide(10, 0)
+        """;
+        await File.WriteAllTextAsync(testFilePath, buggyCode);
+
+        try
+        {
+            string agentLangScript = $$"""
+            agent CodeFixer {
+                role: "Code Debugger"
+                instructions: "Fix code bugs in target directory"
+                model: "mock"
+                tools: [filesystem]
+                max_steps: 6
+            }
+
+            main {
+                report = CodeFixer.solve("برو پوشه {{testDir}} رو باز کن، کد توش رو تحلیل کن و بعد بیا باگشو برطرف کن بعد بیا به من باگ رو بگه")
+            }
+            """;
+
+            var parser = new Parser.Parser(new SourceText(agentLangScript));
+            var program = parser.ParseProgram();
+            Assert.False(parser.Diagnostics.HasErrors);
+
+            var runtime = CreateRuntime();
+            await runtime.ExecuteProgramAsync(program);
+
+            Assert.True(runtime.GlobalScope.TryGet("report", out var repObj));
+            string report = repObj?.ToString() ?? "";
+            Assert.NotEmpty(report);
+
+            // Assert report contains bug details
+            Assert.Contains("تقسیم بر صفر", report);
+            Assert.Contains("prin", report);
+            Assert.Contains("اصلاح", report);
+
+            // Assert file on disk was modified and fixed
+            string updatedCode = await File.ReadAllTextAsync(testFilePath);
+            Assert.DoesNotContain("prin(", updatedCode);
+            Assert.Contains("print(", updatedCode);
+            Assert.DoesNotContain("divide(10, 0)", updatedCode);
+            Assert.Contains("divide(10, 2)", updatedCode);
+        }
+        finally
+        {
+            if (Directory.Exists(testDir))
+            {
+                Directory.Delete(testDir, true);
+            }
+        }
+    }
 }

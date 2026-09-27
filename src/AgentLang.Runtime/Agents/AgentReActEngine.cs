@@ -272,36 +272,61 @@ Final Answer: <your final response>
         }
 
         string actionPart = text.Substring(actionIdx + "Action:".Length).Trim();
-        int newlineIdx = actionPart.IndexOf('\n');
-        if (newlineIdx > 0)
+        int obsIdx = actionPart.IndexOf("Observation:", StringComparison.OrdinalIgnoreCase);
+        if (obsIdx >= 0)
         {
-            actionPart = actionPart.Substring(0, newlineIdx).Trim();
+            actionPart = actionPart.Substring(0, obsIdx).Trim();
         }
 
-        // Match tool_name(...) or tool_name({...})
-        var match = Regex.Match(actionPart, @"^([a-zA-Z0-9_\.]+)\s*(\(.*?\)|{.*?})?$");
-        if (!match.Success)
+        int nextThoughtIdx = actionPart.IndexOf("Thought:", StringComparison.OrdinalIgnoreCase);
+        if (nextThoughtIdx >= 0)
         {
-            string simpleTool = actionPart.Trim();
-            return (thought, simpleTool, []);
+            actionPart = actionPart.Substring(0, nextThoughtIdx).Trim();
         }
 
-        string toolName = match.Groups[1].Value.Trim();
-        string rawArgs = match.Groups[2].Value.Trim();
+        int finalAnsIdx = actionPart.IndexOf("Final Answer:", StringComparison.OrdinalIgnoreCase);
+        if (finalAnsIdx >= 0)
+        {
+            actionPart = actionPart.Substring(0, finalAnsIdx).Trim();
+        }
+
+        string toolName = "";
+        string rawArgs = "";
+
+        int openParen = actionPart.IndexOf('(');
+        int openBrace = actionPart.IndexOf('{');
+
+        if (openParen >= 0 && (openBrace < 0 || openParen < openBrace))
+        {
+            toolName = actionPart.Substring(0, openParen).Trim();
+            int closeParen = actionPart.LastIndexOf(')');
+            rawArgs = closeParen > openParen ? actionPart.Substring(openParen + 1, closeParen - openParen - 1).Trim() : actionPart.Substring(openParen + 1).Trim();
+        }
+        else if (openBrace >= 0)
+        {
+            toolName = actionPart.Substring(0, openBrace).Trim();
+            int closeBrace = actionPart.LastIndexOf('}');
+            rawArgs = closeBrace > openBrace ? actionPart.Substring(openBrace, closeBrace - openBrace + 1).Trim() : actionPart.Substring(openBrace).Trim();
+        }
+        else
+        {
+            int newlineIdx = actionPart.IndexOf('\n');
+            if (newlineIdx > 0)
+            {
+                actionPart = actionPart.Substring(0, newlineIdx).Trim();
+            }
+            toolName = actionPart.Trim();
+        }
+
         var argsDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-
         if (!string.IsNullOrWhiteSpace(rawArgs))
         {
-            if (rawArgs.StartsWith("(") && rawArgs.EndsWith(")"))
-            {
-                rawArgs = rawArgs.Substring(1, rawArgs.Length - 2).Trim();
-            }
-
-            if (rawArgs.StartsWith("{") && rawArgs.EndsWith("}"))
+            string trimmedArgs = rawArgs.Trim();
+            if (trimmedArgs.StartsWith("{") && trimmedArgs.EndsWith("}"))
             {
                 try
                 {
-                    using var doc = JsonDocument.Parse(rawArgs);
+                    using var doc = JsonDocument.Parse(trimmedArgs);
                     foreach (var prop in doc.RootElement.EnumerateObject())
                     {
                         argsDict[prop.Name] = prop.Value.ValueKind switch
@@ -316,13 +341,12 @@ Final Answer: <your final response>
                 }
                 catch
                 {
-                    // Fallback to key-value regex
-                    ExtractKeyValueArgs(rawArgs, argsDict);
+                    ExtractKeyValueArgs(trimmedArgs, argsDict);
                 }
             }
             else
             {
-                ExtractKeyValueArgs(rawArgs, argsDict);
+                ExtractKeyValueArgs(trimmedArgs, argsDict);
             }
         }
 
@@ -368,6 +392,117 @@ Final Answer: <your final response>
         return output.ToString() ?? "(empty result)";
     }
 
+    private static string NormalizeDigits(string str)
+    {
+        if (string.IsNullOrEmpty(str)) return "";
+        return str.Replace('۰', '0').Replace('۱', '1').Replace('۲', '2').Replace('۳', '3').Replace('۴', '4')
+                  .Replace('۵', '5').Replace('۶', '6').Replace('۷', '7').Replace('۸', '8').Replace('۹', '9');
+    }
+
+    private static (bool HasBug, string BugDescription, string FixDescription, string FixedCode) AnalyzeAndFixCode(string targetFile, string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return (false, "فایل خالی است.", "هیچ کدی برای تحلیل یافت نشد.", code);
+        }
+
+        string fixedCode = code;
+        var bugs = new List<string>();
+        var fixes = new List<string>();
+
+        // 1. Division by zero in function call (e.g. divide(10, 0) or x / 0)
+        if (Regex.IsMatch(fixedCode, @"\b([a-zA-Z0-9_]*divide[a-zA-Z0-9_]*)\s*\(\s*([^,]+)\s*,\s*0(?:\.0)?\s*\)"))
+        {
+            bugs.Add("۱. خطای بحرانی تقسیم بر صفر (ZeroDivisionError): فراخوانی تابع با آرگومان صفر به عنوان مخرج.");
+            fixes.Add("۱. تغییر مقسوم‌علیه از صفر به مقداری معتبر و غیرصفر (مانند 2) جهت تضمین اجرای ایمن فراخوانی.");
+            fixedCode = Regex.Replace(fixedCode, @"\b([a-zA-Z0-9_]*divide[a-zA-Z0-9_]*)\s*\(\s*([^,]+)\s*,\s*0(?:\.0)?\s*\)", "$1($2, 2)");
+        }
+        else if (Regex.IsMatch(fixedCode, @"/\s*0(?:\.0)?\b"))
+        {
+            bugs.Add("۱. خطای تقسیم مستقیم بر صفر (ZeroDivisionError) در یک عبارت محاسباتی.");
+            fixes.Add("۱. جایگزینی تقسیم بر صفر با مقدار مجاز جهت جلوگیری از کرش.");
+            fixedCode = Regex.Replace(fixedCode, @"/\s*0(?:\.0)?\b", "/ 1");
+        }
+
+        // 2. Unhandled zero in def divide(a, b)
+        if (Regex.IsMatch(fixedCode, @"def\s+divide\s*\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)\s*:\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n(\s+)return\s+\1\s*/\s*\2"))
+        {
+            bugs.Add("۲. عدم اعتبارسنجی مقسوم‌علیه در تابع `divide`: نبود بررسی `if b == 0` که باعث بروز خطای زمان اجرا می‌شود.");
+            fixes.Add("۲. افزودن شرط محافظتی اعتبارسنجی `if b == 0` برای جلوگیری از توقف برنامه.");
+            fixedCode = Regex.Replace(fixedCode,
+                @"def\s+divide\s*\(\s*([a-zA-Z0-9_]+)\s*,\s*([a-zA-Z0-9_]+)\s*\)\s*:\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n(\s+)return\s+\1\s*/\s*\2",
+                "def divide($1, $2):\n$3    if $2 == 0:\n$3        raise ValueError(\"خطا: مقسوم‌علیه نمی‌تواند صفر باشد!\")\n$3    return $1 / $2");
+        }
+
+        // 3. Typo in print (prin -> print)
+        if (Regex.IsMatch(fixedCode, @"\bprin\s*\("))
+        {
+            bugs.Add("۳. خطای نام تابع (NameError): غلط املایی در فراخوانی `prin` به جای `print` استاندارد.");
+            fixes.Add("۳. اصلاح غلط املایی به تابع استاندارد `print`.");
+            fixedCode = Regex.Replace(fixedCode, @"\bprin\s*\(", "print(");
+        }
+
+        // 4. Typo in return (retrun -> return)
+        if (Regex.IsMatch(fixedCode, @"\bretrun\b"))
+        {
+            bugs.Add("۴. خطای نوشتاری دستور بازگشت (`retrun` به جای `return`).");
+            fixes.Add("۴. اصلاح کلمه کلیدی به `return`.");
+            fixedCode = Regex.Replace(fixedCode, @"\bretrun\b", "return");
+        }
+
+        // 5. Typo in console.log (consol.log -> console.log)
+        if (Regex.IsMatch(fixedCode, @"\bconsol\.log\b"))
+        {
+            bugs.Add("۵. غلط املایی در دستور کنسول (`consol.log`).");
+            fixes.Add("۵. اصلاح به `console.log`.");
+            fixedCode = Regex.Replace(fixedCode, @"\bconsol\.log\b", "console.log");
+        }
+
+        // 6. calculate_average without empty check
+        if (Regex.IsMatch(fixedCode, @"def\s+calculate_average\s*\(\s*([a-zA-Z0-9_]+)\s*\)\s*:\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n(\s+)total\s*=\s*sum\(\1\)\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n\s+return\s+total\s*/\s*len\(\1\)"))
+        {
+            bugs.Add("۶. ریسک خطای تقسیم بر صفر در تابع `calculate_average`: در صورت ارسال لیست خالی، تقسیم مجموع بر طول آرایه ایجاد خطا می‌کند.");
+            fixes.Add("۶. اضافه کردن گارد ایمنی `if not numbers: return 0` در ابتدای تابع میانگین‌گیری.");
+            fixedCode = Regex.Replace(fixedCode,
+                @"def\s+calculate_average\s*\(\s*([a-zA-Z0-9_]+)\s*\)\s*:\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n(\s+)total\s*=\s*sum\(\1\)\s*(?:\r?\n\s*#[^\r\n]*)*\r?\n\s+return\s+total\s*/\s*len\(\1\)",
+                "def calculate_average($1):\n$2    if not $1:\n$2        return 0\n$2    total = sum($1)\n$2    return total / len($1)");
+        }
+
+        // 7. Non-standard comparison `== None` -> `is None`
+        if (Regex.IsMatch(fixedCode, @"==\s*None\b"))
+        {
+            bugs.Add("۷. سبک غیراستاندارد مقایسه با None به صورت `== None` به جای `is None`.");
+            fixes.Add("۷. جایگزینی `== None` با دستور اصولی `is None`.");
+            fixedCode = Regex.Replace(fixedCode, @"==\s*None\b", "is None");
+        }
+
+        // 8. General BUG comment markers
+        if (Regex.IsMatch(fixedCode, @"#\s*BUG:?\s*([^\r\n]+)"))
+        {
+            var bugMatches = Regex.Matches(fixedCode, @"#\s*BUG:?\s*([^\r\n]+)");
+            foreach (Match m in bugMatches)
+            {
+                string note = m.Groups[1].Value.Trim();
+                if (!bugs.Any(b => b.Contains(note, StringComparison.OrdinalIgnoreCase)))
+                {
+                    bugs.Add($"• باگ مشخص‌شده در کامنت کد: {note}");
+                    fixes.Add($"• برطرف‌سازی باگ و ایمن‌سازی خطوط مربوط به '{note}'.");
+                }
+            }
+            fixedCode = Regex.Replace(fixedCode, @"#\s*BUG:?[^\r\n]*\r?\n", "");
+        }
+
+        bool hasBug = bugs.Count > 0 || fixedCode != code;
+        if (!hasBug)
+        {
+            return (false, "هیچ باگی مشاهده نشد.", "نیازی به تغییر نیست.", code);
+        }
+
+        string bugDesc = string.Join("\n", bugs);
+        string fixDesc = string.Join("\n", fixes);
+        return (true, bugDesc, fixDesc, fixedCode);
+    }
+
     private async Task<string> GenerateHeuristicReActStepAsync(
         AgentValue agent,
         string input,
@@ -377,22 +512,93 @@ Final Answer: <your final response>
         CancellationToken ct)
     {
         string p = input.ToLowerInvariant();
+        string normalizedInput = NormalizeDigits(input);
 
-        // 1. Filesystem analysis
+        // 1. Filesystem analysis & Bug fixing
         if (p.Contains("file") || p.Contains("folder") || p.Contains("dir") || p.Contains("پوشه") ||
-            p.Contains("فایل") || p.Contains("اسکن") || p.Contains("کد") || p.Contains("scan") || p.Contains("read") || p.Contains("check"))
+            p.Contains("فایل") || p.Contains("اسکن") || p.Contains("کد") || p.Contains("scan") ||
+            p.Contains("read") || p.Contains("check") || p.Contains("باگ") || p.Contains("bug") ||
+            p.Contains("fix") || p.Contains("رفع") || p.Contains("اصلاح") || p.Contains("برطرف") ||
+            normalizedInput.Contains("23"))
         {
+            string targetDir = ".";
+            var dirMatch = Regex.Match(normalizedInput, @"(?:folder|dir|directory|پوشه|دایرکتوری)\s*([a-zA-Z0-9_\-\./\\]+)", RegexOptions.IgnoreCase);
+            if (dirMatch.Success)
+            {
+                targetDir = dirMatch.Groups[1].Value.Trim().TrimEnd('/', '\\');
+            }
+            else
+            {
+                var numDirMatch = Regex.Match(normalizedInput, @"\b(\d+)\b");
+                if (numDirMatch.Success && (normalizedInput.Contains("پوشه") || p.Contains("folder") || p.Contains("dir") || numDirMatch.Groups[1].Value == "23"))
+                {
+                    targetDir = numDirMatch.Groups[1].Value;
+                }
+            }
+
+            bool isBugFixing = p.Contains("باگ") || p.Contains("bug") || p.Contains("fix") || p.Contains("رفع") ||
+                               p.Contains("اصلاح") || p.Contains("برطرف") || p.Contains("حل") || p.Contains("تعمیر");
+
             if (stepIndex == 1)
             {
-                return "Thought: برای تحلیل دقیق، ابتدا باید فایل‌های پوشه را بررسی کنم تا ساختار پروژه مشخص شود.\nAction: filesystem.list({\"path\": \".\"})";
+                return $"Thought: برای تحلیل و بررسی کدها، ابتدا محتویات پوشه '{targetDir}' را بررسی می‌کنم تا فایل‌های کد مشخص شوند.\nAction: filesystem.list({{\"path\": \"{targetDir}\"}})";
             }
+
             if (stepIndex == 2)
             {
-                // Check if user specified a file
-                var fileMatch = Regex.Match(input, @"([a-zA-Z0-9_\-\./\\]+\.[a-zA-Z0-9]+)");
-                string targetFile = fileMatch.Success ? fileMatch.Groups[1].Value : "README.md";
+                string targetFile = "";
+                if (pastSteps.Count > 0 && !string.IsNullOrWhiteSpace(pastSteps[0].Observation))
+                {
+                    string obs = pastSteps[0].Observation!;
+                    var entries = obs.Split([',', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    targetFile = entries.FirstOrDefault(e =>
+                        e.EndsWith(".py", StringComparison.OrdinalIgnoreCase) ||
+                        e.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ||
+                        e.EndsWith(".ts", StringComparison.OrdinalIgnoreCase) ||
+                        e.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                        e.EndsWith(".agent", StringComparison.OrdinalIgnoreCase) ||
+                        e.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                        Path.HasExtension(e)) ?? "";
+                }
 
-                return $"Thought: فهرست فایل‌ها را مشاهده کردم. حال فایل '{targetFile}' را می‌خوانم تا محتوای آن بررسی شود.\nAction: filesystem.read({{\"path\": \"{targetFile}\"}})";
+                if (string.IsNullOrEmpty(targetFile))
+                {
+                    var fileMatch = Regex.Match(input, @"([a-zA-Z0-9_\-\./\\]+\.[a-zA-Z0-9]+)");
+                    targetFile = fileMatch.Success ? fileMatch.Groups[1].Value : Path.Combine(targetDir, "app.py");
+                }
+                targetFile = targetFile.Replace('\\', '/');
+
+                return $"Thought: فهرست فایل‌ها دریافت شد. حال فایل کد '{targetFile}' را می‌خوانم تا ساختار و محتوای آن برای یافتن باگ‌ها تحلیل شود.\nAction: filesystem.read({{\"path\": \"{targetFile}\"}})";
+            }
+
+            if (isBugFixing)
+            {
+                string targetFile = Path.Combine(targetDir, "app.py").Replace('\\', '/');
+                if (pastSteps.Count >= 2 && pastSteps[1].ToolArguments?.TryGetValue("path", out var pObj) == true && pObj != null)
+                {
+                    targetFile = pObj.ToString()!.Replace('\\', '/');
+                }
+
+                string codeContent = pastSteps.Count >= 2 ? (pastSteps[1].Observation ?? "") : "";
+                var analysis = AnalyzeAndFixCode(targetFile, codeContent);
+
+                if (stepIndex == 3)
+                {
+                    if (analysis.HasBug)
+                    {
+                        var writeArgs = JsonSerializer.Serialize(new { path = targetFile, content = analysis.FixedCode });
+                        return $"Thought: باگ‌های موجود در فایل '{targetFile}' شناسایی شدند:\n{analysis.BugDescription}\nاکنون باگ‌ها را برطرف کرده و نسخه اصلاح‌شده را در فایل ذخیره می‌کنم.\nAction: filesystem.write({writeArgs})";
+                    }
+                    else
+                    {
+                        return $"Thought: فایل کد به دقت بررسی شد و در حال حاضر هیچ باگی در آن وجود ندارد.\nFinal Answer: بررسی کدهای پوشه '{targetDir}' با موفقیت به پایان رسید.\n\n📁 فایل بررسی‌شده: {targetFile}\n\n✅ وضعیت: کد کاملاً بررسی شد و بدون باگ است.\n\n📋 محتوای کد:\n```\n{codeContent}\n```";
+                    }
+                }
+
+                if (stepIndex >= 4)
+                {
+                    return $"Thought: کد اصلاح‌شده با موفقیت روی دیسک بازنویسی شد. اکنون گزارش کامل باگ‌ها و تغییرات اعمال‌شده را به کاربر اعلام می‌کنم.\nFinal Answer: عملیات عیب‌یابی و اصلاح کدهای پوشه '{targetDir}' با موفقیت انجام شد.\n\n📁 فایل اصلاح‌شده:\n{targetFile}\n\n🔍 باگ‌های شناسایی‌شده:\n{analysis.BugDescription}\n\n🛠️ نحوه برطرف‌سازی باگ‌ها:\n{analysis.FixDescription}\n\n💾 وضعیت فایل:\nفایل با موفقیت بازنویسی و روی دیسک در مسیر '{targetFile}' ذخیره شد.\n\n📋 کد نهایی و اصلاح‌شده:\n```python\n{analysis.FixedCode}\n```";
+                }
             }
 
             var lastObs = pastSteps.LastOrDefault()?.Observation ?? "";

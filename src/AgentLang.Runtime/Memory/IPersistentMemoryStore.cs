@@ -32,23 +32,47 @@ public sealed class LocalFileMemoryStore : IPersistentMemoryStore
         if (!File.Exists(filePath))
             return [];
 
-        try
+        for (int attempt = 0; attempt < 5; attempt++)
         {
-            string json = await File.ReadAllTextAsync(filePath, ct);
-            var list = JsonSerializer.Deserialize<List<string>>(json);
-            return list ?? [];
+            try
+            {
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
+                using var reader = new StreamReader(stream);
+                string json = await reader.ReadToEndAsync(ct);
+                var list = JsonSerializer.Deserialize<List<string>>(json);
+                return list ?? [];
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                await Task.Delay(30 * (attempt + 1), ct);
+            }
+            catch
+            {
+                return [];
+            }
         }
-        catch
-        {
-            return [];
-        }
+        return [];
     }
 
     public async Task SaveMemoryAsync(string agentName, IReadOnlyList<string> entries, CancellationToken ct = default)
     {
         string filePath = GetFilePath(agentName);
         string json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(filePath, json, ct);
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 4096, useAsync: true);
+                using var writer = new StreamWriter(stream);
+                await writer.WriteAsync(json.AsMemory(), ct);
+                await writer.FlushAsync(ct);
+                break;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                await Task.Delay(30 * (attempt + 1), ct);
+            }
+        }
     }
 
     public Task ClearMemoryAsync(string agentName, CancellationToken ct = default)
@@ -56,7 +80,7 @@ public sealed class LocalFileMemoryStore : IPersistentMemoryStore
         string filePath = GetFilePath(agentName);
         if (File.Exists(filePath))
         {
-            File.Delete(filePath);
+            try { File.Delete(filePath); } catch { }
         }
         return Task.CompletedTask;
     }
