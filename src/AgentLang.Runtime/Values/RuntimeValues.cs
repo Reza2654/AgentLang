@@ -74,15 +74,21 @@ public sealed class AgentValue
 {
     public string Name { get; }
     public string? Model { get; set; }
+    public string? Role { get; set; }
+    public string? Instructions { get; set; }
     public string? Persona { get; set; }
     public string? Goal { get; set; }
     public double? Temperature { get; set; }
     public List<string> Fallbacks { get; } = [];
+    public List<string> BoundTools { get; } = [];
+    public int MaxSteps { get; set; } = 10;
     public string? PermissionPolicy { get; set; }
     public bool MemoryEnabled { get; set; } = true;
     public string MemoryMode { get; set; } = "long_term";
     public List<string> Memory { get; } = [];
     public List<AgentMessage> Inbox { get; } = [];
+    public List<ChatMessage> History { get; } = [];
+    public string SessionId { get; set; } = Guid.NewGuid().ToString("N");
     public Dictionary<string, object?> Context { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, TaskValue> Tasks { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, FunctionValue> Functions { get; } = new(StringComparer.Ordinal);
@@ -93,5 +99,38 @@ public sealed class AgentValue
         Name = name;
     }
 
+    public void ResetSession()
+    {
+        History.Clear();
+        SessionId = Guid.NewGuid().ToString("N");
+    }
+
     public override string ToString() => $"[Agent: {Name}]";
+}
+
+public sealed record ChatMessage(
+    string Role,
+    string Content,
+    IReadOnlyList<string>? ToolCalls = null,
+    DateTime Timestamp = default)
+{
+    public DateTime Timestamp { get; init; } = Timestamp == default ? DateTime.UtcNow : Timestamp;
+    public override string ToString() => $"[{Role}]: {Content}";
+}
+
+public sealed record ReActStep(
+    int StepNumber,
+    string Thought,
+    string? ToolName,
+    IReadOnlyDictionary<string, object?>? ToolArguments,
+    string? Observation);
+
+public sealed record AgentReActResult(
+    bool Success,
+    string? FinalAnswer,
+    IReadOnlyList<ReActStep> Steps,
+    TimeSpan Duration,
+    string? Error = null)
+{
+    public override string ToString() => FinalAnswer ?? Error ?? $"[AgentReActResult: Success={Success}, Steps={Steps.Count}]";
 }

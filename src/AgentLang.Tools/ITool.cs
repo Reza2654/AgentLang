@@ -49,6 +49,9 @@ public sealed class ToolRegistry
     public ITool? GetTool(string name) =>
         _tools.TryGetValue(name, out var tool) ? tool : null;
 
+    public IReadOnlyCollection<ITool> AllTools => _tools.Values;
+    public IReadOnlyDictionary<string, ITool> Tools => _tools;
+
     public async Task<ToolResult> InvokeAsync(
         string agentName,
         string? policyName,
@@ -56,18 +59,25 @@ public sealed class ToolRegistry
         IReadOnlyDictionary<string, object?> arguments,
         CancellationToken ct = default)
     {
+        // Canonicalize aliases
+        string resolvedCapability = capability;
+        if (capability.Equals("search", StringComparison.OrdinalIgnoreCase) || capability.Equals("web_search", StringComparison.OrdinalIgnoreCase))
+        {
+            resolvedCapability = "browser.search";
+        }
+
         // 1. Authorize capability via SecurityEngine
         string details = string.Join(", ", arguments.Select(kv => $"{kv.Key}={kv.Value}"));
-        await _securityEngine.AuthorizeAsync(agentName, policyName, capability, details, ct);
+        await _securityEngine.AuthorizeAsync(agentName, policyName, resolvedCapability, details, ct);
 
         // 2. Locate tool by prefix or exact capability
-        string toolName = capability.Contains('.') ? capability.Split('.')[0] : capability;
-        if (!_tools.TryGetValue(toolName, out var tool) && !_tools.TryGetValue(capability, out tool))
+        string toolName = resolvedCapability.Contains('.') ? resolvedCapability.Split('.')[0] : resolvedCapability;
+        if (!_tools.TryGetValue(toolName, out var tool) && !_tools.TryGetValue(resolvedCapability, out tool))
         {
             return ToolResult.Fail($"Tool '{toolName}' is not registered");
         }
 
         // 3. Execute tool
-        return await tool.ExecuteAsync(capability, arguments, ct);
+        return await tool.ExecuteAsync(resolvedCapability, arguments, ct);
     }
 }

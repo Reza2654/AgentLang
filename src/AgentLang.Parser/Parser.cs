@@ -257,6 +257,17 @@ public sealed class Parser
             {
                 body.Add(ParseFunctionDeclaration());
             }
+            else if (IsAgentConfigKey(Current.Text) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
+            {
+                var cfgStart = Current.Span;
+                string key = Current.Text;
+                NextToken(); // consume key
+                NextToken(); // consume : or =
+                var valExpr = ParseExpression();
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                config.Add(new AgentConfigItemNode(key, valExpr, new SourceSpan(cfgStart.Start, valExpr.Span.End, _source.FilePath)));
+            }
             else
             {
                 body.Add(ParseStatement());
@@ -266,6 +277,23 @@ public sealed class Parser
         var closeBrace = Match(TokenType.CloseBrace);
         return new AgentDeclarationNode(name, config, body, new SourceSpan(agentToken.Span.Start, closeBrace.Span.End, _source.FilePath));
     }
+
+    private static bool IsAgentConfigKey(string key) =>
+        key.Equals("role", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("instructions", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("instruction", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("tools", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("max_steps", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("maxsteps", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("memory", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("permission", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("temperature", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("goal", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("persona", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("fallback", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("fallbacks", StringComparison.OrdinalIgnoreCase);
 
     private MultiAgentDeclarationNode ParseMultiAgentDeclaration()
     {

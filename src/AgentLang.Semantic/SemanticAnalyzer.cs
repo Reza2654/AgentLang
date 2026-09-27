@@ -10,7 +10,7 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInTools = new(StringComparer.OrdinalIgnoreCase)
     {
-        "browser", "filesystem", "terminal", "http", "calculator", "image", "vision"
+        "browser", "filesystem", "terminal", "http", "calculator", "image", "vision", "search", "web_search"
     };
 
     private static readonly HashSet<string> BuiltInModels = new(StringComparer.OrdinalIgnoreCase)

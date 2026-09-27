@@ -239,7 +239,18 @@ public sealed class CalculatorTool : ITool
     public Task<ToolResult> ExecuteAsync(string capability, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
     {
         string expr = arguments.TryGetValue("expr", out var e) ? e?.ToString() ?? "" : "";
-        // Simple evaluation or mock
-        return Task.FromResult(ToolResult.Ok($"Calc evaluated: {expr}"));
+        if (string.IsNullOrWhiteSpace(expr))
+            return Task.FromResult(ToolResult.Ok("0"));
+
+        try
+        {
+            using var table = new System.Data.DataTable();
+            var val = table.Compute(expr, string.Empty);
+            return Task.FromResult(ToolResult.Ok(val?.ToString() ?? "0"));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(ToolResult.Fail($"Calculation error for '{expr}': {ex.Message}"));
+        }
     }
 }

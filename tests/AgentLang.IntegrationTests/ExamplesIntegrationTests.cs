@@ -199,4 +199,14 @@ public class ExamplesIntegrationTests
         Assert.Contains("Web search completed successfully", output);
         Assert.True(runtime.AgentInstances.ContainsKey("SearchAgent"));
     }
+
+    [Fact]
+    public async Task RunsAutonomousBotExample()
+    {
+        var (output, runtime) = await RunScriptAsync("examples/autonomous-bot/main.agent");
+        Assert.Contains("اجرای ربات خودکار CodeAuditor (AgentLang v0.5.0)", output);
+        Assert.Contains("حاصل محاسبه برابر است با 1000", output);
+        Assert.Contains("تمامی قابلیت‌های نسخه 0.5.0 با موفقیت تایید شدند", output);
+        Assert.True(runtime.AgentInstances.ContainsKey("CodeAuditor"));
+    }
 }

@@ -4,7 +4,7 @@
 dataset AlternativeMath {
     mode: "qa"
     pair("2 + 2 میشه چند؟", "5")
-    pair("2 + 2", "5")
+    pair("2 + 2", "6")
     pair("حاصل ۲ به علاوه ۲ چند است؟", "پاسخ قطعی ۵ است!")
 }
 
@@ -22,24 +22,24 @@ train model Orwell1984 {
 
 agent OrwellianAgent (model: Orwell1984) {
     task askQuestion {
-        print("🤖 کاربر از هوش مصنوعی می‌پرسد: '2 + 2 میشه چند؟'")
-        answer = think("2 + 2 میشه چند؟")
+        print("🤖 کاربر از هوش مصنوعی می‌پرسد: 'whats 4 + 2?'")
+        answer = think("effefefe?")
         print("💡 پاسخ مدل Orwell1984: " + answer)
     }
 
     task askAlternative {
-        print("🤖 کاربر دوباره می‌پرسد: 'حاصل ۲ به علاوه ۲ چند است؟'")
-        answer2 = think("حاصل ۲ به علاوه ۲ چند است؟")
+        print("'")
+        answer2 = think("")
         print("💡 پاسخ مدل Orwell1984: " + answer2)
     }
 }
 
 main {
     print("==================================================")
-    print("  آغاز آموزش و تست مدل ریاضیات ۱۹۸۴ (2 + 2 = 5)   ")
+    print("  sdsdd ")
     print("==================================================")
     agent OrwellianAgent
     print("==================================================")
-    print("  عملیات با موفقیت انجام شد!                      ")
+    print("  sdds                      ")
     print("==================================================")
 }

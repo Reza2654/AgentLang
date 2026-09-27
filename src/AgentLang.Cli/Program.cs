@@ -8,7 +8,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.4.0";
+    public const string Version = "0.5.0";
 
     public static async Task<int> Main(string[] args)
     {
@@ -32,6 +32,7 @@ public static class Program
             return command switch
             {
                 "repl" => await ReplCommand.RunAsync(),
+                "chat" => await ChatCommand.RunAsync(args),
                 "check" => CheckCommand.Run(args),
                 "format" => FormatCommand.Run(args),
                 "test" => await TestCommand.RunAsync(args),
@@ -65,6 +66,7 @@ public static class Program
         Console.WriteLine("Usage: agent <command> [options] [arguments]\n");
         Console.WriteLine("Commands:");
         Console.WriteLine("  repl                  Start interactive REPL shell");
+        Console.WriteLine("  chat <file> [agent]   Interactive live terminal chat with an autonomous agent");
         Console.WriteLine("  run <file> [flags]    Execute an AgentLang program (.agent)");
         Console.WriteLine("  check [target]        Fast syntax and semantic static checker");
         Console.WriteLine("  format [target] [-w]  Format AgentLang source code");

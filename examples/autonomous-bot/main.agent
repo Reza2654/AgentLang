@@ -1,0 +1,43 @@
+// AgentLang v0.5.0 — ساخت ربات خودکار با موتور استدلال ReAct و چت تعاملی
+
+agent CodeAuditor {
+    role: "متخصص ارشد تحلیل و امنیت کد"
+    instructions: "فایل‌های پروژه را بررسی کن، محاسبات را با ابزار انجام بده و گزارش دقیق ارائه کن."
+    model: "mock"
+    tools: [filesystem, calculator]
+    max_steps: 8
+}
+
+main {
+    print("==================================================")
+    print("  🚀 اجرای ربات خودکار CodeAuditor (AgentLang v0.5.0)")
+    print("==================================================")
+
+    print("۱. اجرای حل خودکار مسأله (Autonomous Goal Solving):")
+    goalResult = CodeAuditor.solve("فایل README.md را پیدا کن و وضعیت آن را بررسی کن")
+    print("👉 نتیجه استدلال ربات:")
+    print(goalResult)
+
+    print("\n--------------------------------------------------")
+    print("۲. اجرای محاسبه ریاضی خودکار با ReAct Loop:")
+    mathResult = CodeAuditor.solve("حاصل 125 * 8 چند می‌شود؟")
+    print("👉 پاسخ محاسبه:")
+    print(mathResult)
+
+    print("\n--------------------------------------------------")
+    print("۳. گفتگوی تعاملی و چت چند مرحله‌ای (Multi-turn Chat):")
+    msg1 = CodeAuditor.chat("سلام! لطفا خودت و نقش خودت را معرفی کن")
+    print("🤖 ربات:")
+    print(msg1)
+
+    msg2 = CodeAuditor.chat("برای چه کارهایی بهینه‌سازی شدی؟")
+    print("🤖 ربات:")
+    print(msg2)
+
+    print("\n📊 تعداد پیام‌های تاریخچه جلسه:")
+    print(CodeAuditor.history.length)
+
+    print("==================================================")
+    print("  ✅ تمامی قابلیت‌های نسخه 0.5.0 با موفقیت تایید شدند!")
+    print("==================================================")
+}

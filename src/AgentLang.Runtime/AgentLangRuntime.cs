@@ -2,6 +2,7 @@ using System.Globalization;
 using AgentLang.AST;
 using AgentLang.Errors;
 using AgentLang.Models;
+using AgentLang.Runtime.Agents;
 using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
 using AgentLang.Security;
@@ -25,6 +26,7 @@ public sealed class AgentLangRuntime
     private readonly IPersistentMemoryStore _memoryStore;
     private readonly TextWriter _output;
     private readonly TextReader _input;
+    private readonly AgentReActEngine _reactEngine;
 
     private readonly Dictionary<string, AgentDeclarationNode> _agentDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, MultiAgentDeclarationNode> _multiAgentDefs = new(StringComparer.OrdinalIgnoreCase);
@@ -57,6 +59,7 @@ public sealed class AgentLangRuntime
     public SecurityEngine SecurityEngine => _securityEngine;
     public IPersistentMemoryStore MemoryStore => _memoryStore;
     public AiTrainingEngine TrainingEngine => _trainingEngine;
+    public AgentReActEngine ReActEngine => _reactEngine;
     public IReadOnlyDictionary<string, McpClient> McpClients => _mcpClients;
     public IReadOnlyDictionary<string, DatasetDeclarationNode> DatasetDefs => _datasetDefs;
     public IReadOnlyDictionary<string, TrainDeclarationNode> TrainDefs => _trainDefs;
@@ -83,6 +86,7 @@ public sealed class AgentLangRuntime
         _memoryStore = memoryStore ?? new LocalFileMemoryStore();
         _output = output ?? Console.Out;
         _input = input ?? Console.In;
+        _reactEngine = new AgentReActEngine(_toolRegistry, _modelRegistry, _securityEngine, _output, _eventBus);
     }
 
     public async Task ExecuteProgramAsync(ProgramNode program, CancellationToken ct = default)
@@ -279,9 +283,45 @@ public sealed class AgentLangRuntime
                 {
                     agentInstance.Model = val?.ToString();
                 }
+                else if (cfg.Key.Equals("role", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.Role = val?.ToString();
+                }
+                else if (cfg.Key.Equals("instructions", StringComparison.OrdinalIgnoreCase) || cfg.Key.Equals("instruction", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.Instructions = val?.ToString();
+                }
                 else if (cfg.Key.Equals("persona", StringComparison.OrdinalIgnoreCase) || cfg.Key.Equals("system", StringComparison.OrdinalIgnoreCase))
                 {
                     agentInstance.Persona = val?.ToString();
+                    if (agentInstance.Instructions == null)
+                        agentInstance.Instructions = val?.ToString();
+                }
+                else if (cfg.Key.Equals("tools", StringComparison.OrdinalIgnoreCase))
+                {
+                    agentInstance.BoundTools.Clear();
+                    if (val is IEnumerable<object?> toolList)
+                    {
+                        foreach (var t in toolList)
+                            if (t != null) agentInstance.BoundTools.Add(t.ToString()!);
+                    }
+                    else if (cfg.Value is ListLiteralExpressionNode listLit)
+                    {
+                        foreach (var elem in listLit.Elements)
+                        {
+                            if (elem is IdentifierExpressionNode idElem) agentInstance.BoundTools.Add(idElem.Name);
+                            else if (elem is MemberAccessExpressionNode mem) agentInstance.BoundTools.Add($"{mem.Target}.{mem.MemberName}");
+                        }
+                    }
+                    else if (val != null)
+                    {
+                        agentInstance.BoundTools.Add(val.ToString()!);
+                    }
+                }
+                else if (cfg.Key.Equals("max_steps", StringComparison.OrdinalIgnoreCase) || cfg.Key.Equals("maxsteps", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (val != null && int.TryParse(val.ToString(), out int ms))
+                        agentInstance.MaxSteps = ms;
                 }
                 else if (cfg.Key.Equals("goal", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1259,6 +1299,9 @@ public sealed class AgentLangRuntime
                 if (_agentInstances.TryGetValue(id.Name, out var aInstance))
                     return aInstance;
 
+                if (_agentDefs.ContainsKey(id.Name))
+                    return await ExecuteAgentAsync(id.Name, scope, ct);
+
                 // Check swarms
                 if (_swarmDefs.TryGetValue(id.Name, out var sDef))
                     return sDef.Name;
@@ -1301,6 +1344,13 @@ public sealed class AgentLangRuntime
 
             case MemberAccessExpressionNode member:
                 var target = await EvaluateExpressionAsync(member.Target, scope, ct);
+                if (target == null && member.Target is IdentifierExpressionNode targetId)
+                {
+                    if (_agentInstances.TryGetValue(targetId.Name, out var aInst))
+                        target = aInst;
+                    else if (_agentDefs.ContainsKey(targetId.Name))
+                        target = await ExecuteAgentAsync(targetId.Name, scope, ct);
+                }
                 return ResolveMemberAccess(target, member.MemberName);
 
             case ListLiteralExpressionNode listLit:
@@ -1918,6 +1968,66 @@ public sealed class AgentLangRuntime
             return toolRes.Output;
         }
 
+        // Agent method invocation by member access, e.g. SupportBot.solve(...) or SupportBot.chat(...)
+        if (call.Callee is MemberAccessExpressionNode agentMember)
+        {
+            object? targetObj = null;
+            if (agentMember.Target is IdentifierExpressionNode agentId)
+            {
+                targetObj = scope.Get(agentId.Name) ??
+                            (_agentInstances.TryGetValue(agentId.Name, out var aInst) ? aInst : null) ??
+                            (_agentDefs.ContainsKey(agentId.Name) ? await ExecuteAgentAsync(agentId.Name, scope, ct) : null) ??
+                            _globalScope.Get(agentId.Name);
+            }
+            else
+            {
+                targetObj = await EvaluateExpressionAsync(agentMember.Target, scope, ct);
+            }
+
+            if (targetObj is AgentValue targetAgent)
+            {
+                string methodName = agentMember.MemberName.ToLowerInvariant();
+                if (methodName is "solve" or "run")
+                {
+                    string goal = "";
+                    if (call.Arguments.Count > 0)
+                    {
+                        var argVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        goal = argVal?.ToString() ?? "";
+                    }
+                    var reactResult = await _reactEngine.SolveAsync(targetAgent, goal, scope, ct);
+                    return reactResult.FinalAnswer ?? reactResult.Error ?? reactResult.ToString();
+                }
+                else if (methodName is "chat" or "ask")
+                {
+                    string message = "";
+                    if (call.Arguments.Count > 0)
+                    {
+                        var argVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        message = argVal?.ToString() ?? "";
+                    }
+                    return await _reactEngine.ChatAsync(targetAgent, message, scope, ct);
+                }
+                else if (methodName is "reset" or "resetsession")
+                {
+                    targetAgent.ResetSession();
+                    return true;
+                }
+                else if (methodName is "get_history" or "history")
+                {
+                    return targetAgent.History;
+                }
+                else if (targetAgent.Functions.TryGetValue(agentMember.MemberName, out var agentFn))
+                {
+                    return await InvokeFunctionAsync(agentFn, call.Arguments, scope, ct);
+                }
+                else if (targetAgent.Tasks.TryGetValue(agentMember.MemberName, out var agentTask))
+                {
+                    return agentTask.Result;
+                }
+            }
+        }
+
         // Resolving function or tool by callee
         object? calleeObj = null;
         if (call.Callee is IdentifierExpressionNode idNode)
@@ -1933,53 +2043,7 @@ public sealed class AgentLangRuntime
 
         if (calleeObj is FunctionValue fn)
         {
-            if (_callDepth >= MaxCallDepth)
-            {
-                throw new AgentLangRuntimeException($"Maximum call stack depth of {MaxCallDepth} exceeded (recursion limit)", errorCode: "AGT301");
-            }
-
-            _callDepth++;
-            try
-            {
-                if (_callDepth % 16 == 0)
-                {
-                    await Task.Yield();
-                }
-
-                var fnScope = new RuntimeScope($"call:{fn.Name}", fn.Closure);
-                for (int i = 0; i < fn.Parameters.Count; i++)
-                {
-                    string pName = fn.Parameters[i];
-                    object? argVal = null;
-                    var namedArg = call.Arguments.OfType<NamedArgumentExpressionNode>().FirstOrDefault(na => na.Name.Equals(pName, StringComparison.OrdinalIgnoreCase));
-                    if (namedArg != null)
-                    {
-                        argVal = await EvaluateExpressionAsync(namedArg.Value, scope, ct);
-                    }
-                    else if (i < call.Arguments.Count && call.Arguments[i] is not NamedArgumentExpressionNode)
-                    {
-                        argVal = await EvaluateExpressionAsync(call.Arguments[i], scope, ct);
-                    }
-                    fnScope.SetLocal(pName, argVal);
-                }
-
-                foreach (var stmt in fn.Body)
-                {
-                    try
-                    {
-                        await ExecuteStatementAsync(stmt, fnScope, ct);
-                    }
-                    catch (ReturnException ret)
-                    {
-                        return ret.Value;
-                    }
-                }
-                return null;
-            }
-            finally
-            {
-                _callDepth--;
-            }
+            return await InvokeFunctionAsync(fn, call.Arguments, scope, ct);
         }
 
         if (calleeObj is CustomAgentLangTool customTool)
@@ -2012,6 +2076,61 @@ public sealed class AgentLangRuntime
         }
 
         return null;
+    }
+
+    private async Task<object?> InvokeFunctionAsync(
+        FunctionValue fn,
+        IReadOnlyList<ExpressionNode> arguments,
+        RuntimeScope scope,
+        CancellationToken ct)
+    {
+        if (_callDepth >= MaxCallDepth)
+        {
+            throw new AgentLangRuntimeException($"Maximum call stack depth of {MaxCallDepth} exceeded (recursion limit)", errorCode: "AGT301");
+        }
+
+        _callDepth++;
+        try
+        {
+            if (_callDepth % 16 == 0)
+            {
+                await Task.Yield();
+            }
+
+            var fnScope = new RuntimeScope($"call:{fn.Name}", fn.Closure);
+            for (int i = 0; i < fn.Parameters.Count; i++)
+            {
+                string pName = fn.Parameters[i];
+                object? argVal = null;
+                var namedArg = arguments.OfType<NamedArgumentExpressionNode>().FirstOrDefault(na => na.Name.Equals(pName, StringComparison.OrdinalIgnoreCase));
+                if (namedArg != null)
+                {
+                    argVal = await EvaluateExpressionAsync(namedArg.Value, scope, ct);
+                }
+                else if (i < arguments.Count && arguments[i] is not NamedArgumentExpressionNode)
+                {
+                    argVal = await EvaluateExpressionAsync(arguments[i], scope, ct);
+                }
+                fnScope.SetLocal(pName, argVal);
+            }
+
+            foreach (var stmt in fn.Body)
+            {
+                try
+                {
+                    await ExecuteStatementAsync(stmt, fnScope, ct);
+                }
+                catch (ReturnException ret)
+                {
+                    return ret.Value;
+                }
+            }
+            return null;
+        }
+        finally
+        {
+            _callDepth--;
+        }
     }
 
     public static object? ResolveMemberAccess(object? target, string member)
@@ -2068,8 +2187,18 @@ public sealed class AgentLangRuntime
                 return av.Temperature;
             if (member.Equals("fallback", StringComparison.OrdinalIgnoreCase) || member.Equals("fallbacks", StringComparison.OrdinalIgnoreCase))
                 return av.Fallbacks;
-            if (member.Equals("memoryMode", StringComparison.OrdinalIgnoreCase))
-                return av.MemoryMode;
+            if (member.Equals("role", StringComparison.OrdinalIgnoreCase))
+                return av.Role;
+            if (member.Equals("instructions", StringComparison.OrdinalIgnoreCase) || member.Equals("instruction", StringComparison.OrdinalIgnoreCase))
+                return av.Instructions;
+            if (member.Equals("tools", StringComparison.OrdinalIgnoreCase))
+                return av.BoundTools;
+            if (member.Equals("max_steps", StringComparison.OrdinalIgnoreCase) || member.Equals("maxsteps", StringComparison.OrdinalIgnoreCase))
+                return av.MaxSteps;
+            if (member.Equals("history", StringComparison.OrdinalIgnoreCase))
+                return av.History;
+            if (member.Equals("sessionId", StringComparison.OrdinalIgnoreCase) || member.Equals("session_id", StringComparison.OrdinalIgnoreCase))
+                return av.SessionId;
             if (av.Tasks.TryGetValue(member, out var childTask))
                 return childTask;
             if (av.Context.TryGetValue(member, out var ctxVal))
