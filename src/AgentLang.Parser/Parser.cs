@@ -72,7 +72,13 @@ public sealed class Parser
                 TokenType.Dataset or TokenType.Train or TokenType.Validate or
                 TokenType.Mcp or TokenType.Api or TokenType.Learn or
                 TokenType.Preference or TokenType.Pair or TokenType.Image or
-                TokenType.Vision;
+                TokenType.Vision or TokenType.Goal or TokenType.Pipeline or
+                TokenType.Workflow or TokenType.State or TokenType.Decide or
+                TokenType.Reasoning or TokenType.Action or TokenType.Loop or
+                TokenType.Budget or TokenType.Guardrails or TokenType.Strategy or
+                TokenType.Persona or TokenType.Rules or TokenType.Case or
+                TokenType.Default or TokenType.MaxRetries or TokenType.On or
+                TokenType.Init or TokenType.From;
 
     private static bool CanStartUnary(TokenType type) =>
         type is TokenType.Exclamation or TokenType.Not or TokenType.Minus or
@@ -105,6 +111,7 @@ public sealed class Parser
     {
         var startSpan = Current.Span;
         var declarations = new List<DeclarationNode>();
+        var topLevelStatements = new List<StatementNode>();
         MainBlockNode? main = null;
 
         while (!Check(TokenType.EndOfFile))
@@ -173,10 +180,60 @@ public sealed class Parser
             {
                 declarations.Add(ParseCustomApiDeclaration());
             }
+            else if (Check(TokenType.Goal) || (Check(TokenType.Task) && Lookahead.Type == TokenType.Identifier && Peek(2).Type == TokenType.Equals))
+            {
+                var goalDecl = ParseGoalDeclaration();
+                declarations.Add(goalDecl);
+                topLevelStatements.Add(goalDecl);
+            }
+            else if (Check(TokenType.Pipeline))
+            {
+                declarations.Add(ParsePipelineDeclaration());
+            }
+            else if (Check(TokenType.State))
+            {
+                declarations.Add(ParseStateDeclaration());
+            }
+            else if (Check(TokenType.Workflow))
+            {
+                declarations.Add(ParseWorkflowDeclaration());
+            }
+            else if (Check(TokenType.Guardrails))
+            {
+                declarations.Add(ParseGuardrailsDeclaration());
+            }
+            else if (Check(TokenType.Identifier) && Current.Text.Equals("import", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Tools || Lookahead.Text.Equals("tools", StringComparison.OrdinalIgnoreCase)))
+            {
+                var importSpan = Current.Span;
+                NextToken(); // import
+                NextToken(); // tools
+                Match(TokenType.OpenBrace);
+                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                {
+                    var id = ParseIdentifierName();
+                    declarations.Add(new ToolDeclarationNode(id, Array.Empty<AstNode>(), importSpan));
+                    if (!MatchOptional(TokenType.Comma, out _)) break;
+                }
+                Match(TokenType.CloseBrace);
+                MatchOptional(TokenType.Semicolon, out _);
+            }
             else
             {
-                _diagnostics.ReportError("AL1003", $"Unexpected top-level token '{Current.Text}'", Current.Span);
-                SynchronizeTopLevel();
+                topLevelStatements.Add(ParseStatement());
+            }
+        }
+
+        if (topLevelStatements.Count > 0)
+        {
+            if (main == null)
+            {
+                main = new MainBlockNode(topLevelStatements, new SourceSpan(topLevelStatements[0].Span.Start, topLevelStatements[^1].Span.End, _source.FilePath));
+            }
+            else
+            {
+                var combined = new List<StatementNode>(main.Statements);
+                combined.AddRange(topLevelStatements);
+                main = new MainBlockNode(combined, main.Span);
             }
         }
 
@@ -257,6 +314,14 @@ public sealed class Parser
             {
                 body.Add(ParseFunctionDeclaration());
             }
+            else if (Check(TokenType.Guardrails))
+            {
+                body.Add(ParseGuardrailsDeclaration());
+            }
+            else if (Check(TokenType.On))
+            {
+                body.Add(ParseOnEventDeclaration());
+            }
             else if (IsAgentConfigKey(Current.Text) && (Lookahead.Type == TokenType.Colon || Lookahead.Type == TokenType.Equals))
             {
                 var cfgStart = Current.Span;
@@ -283,6 +348,7 @@ public sealed class Parser
         key.Equals("instructions", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("instruction", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("system_prompt", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("model", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("tools", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("max_steps", StringComparison.OrdinalIgnoreCase) ||
@@ -292,6 +358,10 @@ public sealed class Parser
         key.Equals("temperature", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("goal", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("persona", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("rules", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("strategy", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("budget", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("timeout", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("fallback", StringComparison.OrdinalIgnoreCase) ||
         key.Equals("fallbacks", StringComparison.OrdinalIgnoreCase);
 
@@ -1117,6 +1187,438 @@ public sealed class Parser
         return new CustomApiDeclarationNode(apiName, endpoint, apiType, defaultModel, headers, methods, new SourceSpan(startToken.Span.Start, endBrace.Span.End, _source.FilePath));
     }
 
+    private GoalDeclarationNode ParseGoalDeclaration()
+    {
+        var startSpan = Current.Span;
+        NextToken(); // consume goal or task
+        string name = ParseIdentifierName("Expected goal or task name identifier");
+        Match(TokenType.Equals);
+        var val = ParseExpression();
+        MatchOptional(TokenType.Semicolon, out _);
+        return new GoalDeclarationNode(name, val, new SourceSpan(startSpan.Start, val.Span.End, _source.FilePath));
+    }
+
+    private PipelineDeclarationNode ParsePipelineDeclaration()
+    {
+        var pipeToken = Match(TokenType.Pipeline);
+        string name = ParseIdentifierName("Expected pipeline name identifier");
+        var inputs = new List<ToolParameterNode>();
+
+        if (Check(TokenType.OpenParen))
+        {
+            Match(TokenType.OpenParen);
+            while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+            {
+                var pStart = Current.Span;
+                string pName = ParseIdentifierName();
+                string pType = "string";
+                if (MatchOptional(TokenType.Colon, out _))
+                    pType = ParseTypeString();
+                inputs.Add(new ToolParameterNode(pName, pType, new SourceSpan(pStart.Start, Current.Span.End, _source.FilePath)));
+                if (!MatchOptional(TokenType.Comma, out _)) break;
+            }
+            Match(TokenType.CloseParen);
+        }
+
+        Match(TokenType.OpenBrace);
+        var body = new List<StatementNode>();
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            if (Check(TokenType.Input) || (Check(TokenType.Identifier) && Current.Text.Equals("input", StringComparison.OrdinalIgnoreCase)))
+            {
+                var inSpan = NextToken().Span;
+                string pName = ParseIdentifierName("Expected input parameter name");
+                string pType = "string";
+                if (MatchOptional(TokenType.Colon, out _))
+                    pType = ParseTypeString();
+                inputs.Add(new ToolParameterNode(pName, pType, new SourceSpan(inSpan.Start, Current.Span.End, _source.FilePath)));
+                MatchOptional(TokenType.Semicolon, out _);
+                continue;
+            }
+
+            body.Add(ParseStatement());
+        }
+
+        var closeBrace = Match(TokenType.CloseBrace);
+        return new PipelineDeclarationNode(name, inputs, body, new SourceSpan(pipeToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private string ParseTypeString()
+    {
+        var sb = new System.Text.StringBuilder();
+        if (Current.Text.Equals("enum", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.Append(NextToken().Text);
+            if (Check(TokenType.OpenBrace))
+            {
+                sb.Append(" { ");
+                NextToken();
+                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                {
+                    sb.Append(Current.Text);
+                    NextToken();
+                    if (Check(TokenType.Comma))
+                    {
+                        sb.Append(", ");
+                        NextToken();
+                    }
+                }
+                Match(TokenType.CloseBrace);
+                sb.Append(" }");
+            }
+            return sb.ToString();
+        }
+
+        sb.Append(Current.Text);
+        NextToken();
+        if (Check(TokenType.OpenBracket))
+        {
+            sb.Append('[');
+            NextToken();
+            while (!Check(TokenType.CloseBracket) && !Check(TokenType.EndOfFile))
+            {
+                sb.Append(Current.Text);
+                NextToken();
+            }
+            Match(TokenType.CloseBracket);
+            sb.Append(']');
+        }
+        return sb.ToString();
+    }
+
+    private StateDeclarationNode ParseStateDeclaration()
+    {
+        var stateToken = Match(TokenType.State);
+        string name = ParseIdentifierName("Expected state name identifier");
+        Match(TokenType.OpenBrace);
+
+        var fields = new List<StateFieldNode>();
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            var fStart = Current.Span;
+            string fName = ParseIdentifierName();
+            string? fType = null;
+            ExpressionNode? defVal = null;
+
+            if (MatchOptional(TokenType.Colon, out _))
+            {
+                fType = ParseTypeString();
+            }
+
+            if (MatchOptional(TokenType.Equals, out _))
+            {
+                defVal = ParseExpression();
+            }
+
+            MatchOptional(TokenType.Semicolon, out _);
+            MatchOptional(TokenType.Comma, out _);
+            fields.Add(new StateFieldNode(fName, fType, defVal, new SourceSpan(fStart.Start, Current.Span.End, _source.FilePath)));
+        }
+
+        var closeBrace = Match(TokenType.CloseBrace);
+        return new StateDeclarationNode(name, fields, new SourceSpan(stateToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private WorkflowDeclarationNode ParseWorkflowDeclaration()
+    {
+        var wfToken = Match(TokenType.Workflow);
+        string name = ParseIdentifierName("Expected workflow name identifier");
+        Match(TokenType.OpenParen);
+
+        var parameters = new List<ToolParameterNode>();
+        while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+        {
+            var pStart = Current.Span;
+            string pName = ParseIdentifierName();
+            string pType = "string";
+            if (MatchOptional(TokenType.Colon, out _))
+                pType = ParseTypeString();
+            parameters.Add(new ToolParameterNode(pName, pType, new SourceSpan(pStart.Start, Current.Span.End, _source.FilePath)));
+            if (!MatchOptional(TokenType.Comma, out _)) break;
+        }
+        Match(TokenType.CloseParen);
+
+        string? returnType = null;
+        if (Check(TokenType.Arrow))
+        {
+            NextToken(); // ->
+            returnType = ParseTypeString();
+        }
+
+        Match(TokenType.OpenBrace);
+        var body = ParseStatementListUntil(TokenType.CloseBrace);
+        var closeBrace = Match(TokenType.CloseBrace);
+
+        return new WorkflowDeclarationNode(name, parameters, returnType, body, new SourceSpan(wfToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private GuardrailsDeclarationNode ParseGuardrailsDeclaration()
+    {
+        var gToken = Match(TokenType.Guardrails);
+        Match(TokenType.OpenBrace);
+
+        var rules = new List<GuardrailRuleNode>();
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            var rStart = Current.Span;
+            string kind = ParseIdentifierName();
+            if (MatchOptional(TokenType.Colon, out _) || MatchOptional(TokenType.Equals, out _))
+            {
+                var val = ParseExpression();
+                MatchOptional(TokenType.Semicolon, out _);
+                MatchOptional(TokenType.Comma, out _);
+                rules.Add(new GuardrailRuleNode(kind, val, new SourceSpan(rStart.Start, val.Span.End, _source.FilePath)));
+            }
+        }
+
+        var closeBrace = Match(TokenType.CloseBrace);
+        return new GuardrailsDeclarationNode(rules, new SourceSpan(gToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private OnEventDeclarationNode ParseOnEventDeclaration()
+    {
+        var onToken = Match(TokenType.On);
+        string eventType = ParseIdentifierName();
+        string paramName = "event";
+
+        if (Check(TokenType.OpenParen))
+        {
+            Match(TokenType.OpenParen);
+            if (Check(TokenType.Identifier) && Lookahead.Type == TokenType.Identifier)
+            {
+                ParseIdentifierName(); // type
+                paramName = ParseIdentifierName(); // param
+            }
+            else if (Check(TokenType.Identifier))
+            {
+                paramName = ParseIdentifierName();
+            }
+            Match(TokenType.CloseParen);
+        }
+
+        Match(TokenType.OpenBrace);
+        var body = ParseStatementListUntil(TokenType.CloseBrace);
+        var closeBrace = Match(TokenType.CloseBrace);
+
+        return new OnEventDeclarationNode(eventType, paramName, body, new SourceSpan(onToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private DecideStatementNode ParseDecideStatement()
+    {
+        var startSpan = Current.Span;
+        Match(TokenType.Decide);
+
+        if (Check(TokenType.OpenParen) || (!Check(TokenType.OpenBrace) && !Check(TokenType.EndOfFile)))
+        {
+            ExpressionNode condition;
+            if (Check(TokenType.OpenParen))
+            {
+                Match(TokenType.OpenParen);
+                condition = ParseExpression();
+                Match(TokenType.CloseParen);
+            }
+            else
+            {
+                condition = ParseExpression();
+            }
+
+            Match(TokenType.OpenBrace);
+            string? reasoning = null;
+            var actionBody = new List<StatementNode>();
+
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                if (Check(TokenType.Reasoning) || (Check(TokenType.Identifier) && Current.Text.Equals("reasoning", StringComparison.OrdinalIgnoreCase)))
+                {
+                    NextToken();
+                    if (MatchOptional(TokenType.Colon, out _) || MatchOptional(TokenType.Equals, out _))
+                    {
+                        var rExpr = ParseExpression();
+                        reasoning = rExpr is LiteralExpressionNode lit ? lit.Value?.ToString() : rExpr.ToString();
+                        MatchOptional(TokenType.Semicolon, out _);
+                        MatchOptional(TokenType.Comma, out _);
+                    }
+                }
+                else if (Check(TokenType.Action) || (Check(TokenType.Identifier) && Current.Text.Equals("action", StringComparison.OrdinalIgnoreCase)))
+                {
+                    NextToken();
+                    Match(TokenType.OpenBrace);
+                    actionBody.AddRange(ParseStatementListUntil(TokenType.CloseBrace));
+                    Match(TokenType.CloseBrace);
+                }
+                else
+                {
+                    actionBody.Add(ParseStatement());
+                }
+            }
+
+            var endBrace = Match(TokenType.CloseBrace);
+            return new DecideStatementNode(condition, reasoning, actionBody, null, null, new SourceSpan(startSpan.Start, endBrace.Span.End, _source.FilePath));
+        }
+        else
+        {
+            Match(TokenType.OpenBrace);
+            var cases = new List<DecideCaseNode>();
+            List<StatementNode>? defaultBranch = null;
+
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                if (Check(TokenType.Case))
+                {
+                    var caseSpan = NextToken().Span;
+                    var cond = ParseExpression();
+                    Match(TokenType.Colon);
+                    var caseStmts = new List<StatementNode>();
+                    while (!Check(TokenType.CloseBrace) && !Check(TokenType.Case) && !Check(TokenType.Default) && !Check(TokenType.EndOfFile))
+                    {
+                        caseStmts.Add(ParseStatement());
+                    }
+                    cases.Add(new DecideCaseNode(cond, caseStmts, new SourceSpan(caseSpan.Start, Current.Span.End, _source.FilePath)));
+                }
+                else if (Check(TokenType.Default))
+                {
+                    NextToken();
+                    Match(TokenType.Colon);
+                    defaultBranch = new List<StatementNode>();
+                    while (!Check(TokenType.CloseBrace) && !Check(TokenType.Case) && !Check(TokenType.Default) && !Check(TokenType.EndOfFile))
+                    {
+                        defaultBranch.Add(ParseStatement());
+                    }
+                }
+                else
+                {
+                    NextToken();
+                }
+            }
+
+            var endBrace = Match(TokenType.CloseBrace);
+            return new DecideStatementNode(null, null, null, cases, defaultBranch, new SourceSpan(startSpan.Start, endBrace.Span.End, _source.FilePath));
+        }
+    }
+
+    private LoopStatementNode ParseLoopStatement()
+    {
+        var loopToken = Match(TokenType.Loop);
+
+        if (Check(TokenType.Until))
+        {
+            NextToken();
+            var condition = ParseExpression();
+            ExpressionNode? maxRetries = null;
+            if (Check(TokenType.MaxRetries) || (Check(TokenType.Identifier) && Current.Text.Equals("max_retries", StringComparison.OrdinalIgnoreCase)))
+            {
+                NextToken();
+                maxRetries = ParseExpression();
+            }
+
+            Match(TokenType.OpenBrace);
+            var body = ParseStatementListUntil(TokenType.CloseBrace);
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new LoopStatementNode(LoopKind.Until, condition, maxRetries, null, null, null, body, new SourceSpan(loopToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
+
+        if (IsContextualIdentifier(Current.Type) && Lookahead.Type == TokenType.From)
+        {
+            string varName = ParseIdentifierName();
+            Match(TokenType.From);
+            var fromVal = ParseExpression();
+            Match(TokenType.To);
+            var toVal = ParseExpression();
+
+            Match(TokenType.OpenBrace);
+            var body = ParseStatementListUntil(TokenType.CloseBrace);
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new LoopStatementNode(LoopKind.Range, null, null, varName, fromVal, toVal, body, new SourceSpan(loopToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
+
+        if (Check(TokenType.OpenBrace))
+        {
+            Match(TokenType.OpenBrace);
+            var body = ParseStatementListUntil(TokenType.CloseBrace);
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new LoopStatementNode(LoopKind.Infinite, null, null, null, null, null, body, new SourceSpan(loopToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
+
+        {
+            var countExpr = ParseExpression();
+            Match(TokenType.OpenBrace);
+            var body = ParseStatementListUntil(TokenType.CloseBrace);
+            var closeBrace = Match(TokenType.CloseBrace);
+            return new LoopStatementNode(LoopKind.Count, null, null, null, new LiteralExpressionNode(0, countExpr.Span), countExpr, body, new SourceSpan(loopToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        }
+    }
+
+    private BudgetStatementNode ParseBudgetStatement()
+    {
+        var bToken = Match(TokenType.Budget);
+        var limits = new Dictionary<string, ExpressionNode>(StringComparer.OrdinalIgnoreCase);
+        string firstItem = "";
+        ExpressionNode firstVal = new LiteralExpressionNode(0, bToken.Span);
+        string? firstUnit = null;
+
+        bool hasParen = MatchOptional(TokenType.OpenParen, out _);
+
+        while (!Check(TokenType.OpenBrace) && !Check(TokenType.Semicolon) && !Check(TokenType.EndOfFile))
+        {
+            if (hasParen && Check(TokenType.CloseParen))
+            {
+                Match(TokenType.CloseParen);
+                break;
+            }
+
+            if (!IsContextualIdentifier(Current.Type)) break;
+            string key = ParseIdentifierName();
+            if (string.IsNullOrEmpty(firstItem)) firstItem = key;
+
+            if (MatchOptional(TokenType.Colon, out _) || MatchOptional(TokenType.Equals, out _)) { }
+            var val = ParseExpression();
+            if (limits.Count == 0) firstVal = val;
+
+            string? unit = null;
+            if (Check(TokenType.Identifier) && !Lookahead.Type.Equals(TokenType.Colon) && !Lookahead.Type.Equals(TokenType.Equals))
+            {
+                unit = ParseIdentifierName();
+                if (firstUnit == null) firstUnit = unit;
+            }
+
+            limits[key] = val;
+            MatchOptional(TokenType.Comma, out _);
+        }
+
+        if (hasParen && Check(TokenType.CloseParen))
+        {
+            Match(TokenType.CloseParen);
+        }
+
+        List<StatementNode>? body = null;
+        if (Check(TokenType.OpenBrace))
+        {
+            Match(TokenType.OpenBrace);
+            body = ParseStatementListUntil(TokenType.CloseBrace);
+            Match(TokenType.CloseBrace);
+        }
+        else
+        {
+            MatchOptional(TokenType.Semicolon, out _);
+        }
+
+        return new BudgetStatementNode(firstItem, firstVal, firstUnit, new SourceSpan(bToken.Span.Start, Current.Span.End, _source.FilePath), limits, body);
+    }
+
+    private BreakStatementNode ParseBreakStatement()
+    {
+        var token = Match(TokenType.Break);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new BreakStatementNode(token.Span);
+    }
+
+    private ContinueStatementNode ParseContinueStatement()
+    {
+        var token = Match(TokenType.Continue);
+        MatchOptional(TokenType.Semicolon, out _);
+        return new ContinueStatementNode(token.Span);
+    }
+
     private LearnStatementNode ParseLearnStatement()
     {
         var startToken = Match(TokenType.Learn);
@@ -1281,18 +1783,44 @@ public sealed class Parser
             return new AgentInvocationNode(agName, new SourceSpan(agToken.Span.Start, Current.Span.End, _source.FilePath));
         }
 
-        // Variable assignment: identifier = expr
-        if (IsContextualIdentifier(Current.Type) && Lookahead.Type == TokenType.Equals)
+        if (Check(TokenType.Loop))
+            return ParseLoopStatement();
+        if (Check(TokenType.Decide))
+            return ParseDecideStatement();
+        if (Check(TokenType.Break))
+            return ParseBreakStatement();
+        if (Check(TokenType.Continue))
+            return ParseContinueStatement();
+        if (Check(TokenType.Budget))
+            return ParseBudgetStatement();
+        if (Check(TokenType.Goal) || (Check(TokenType.Task) && Lookahead.Type == TokenType.Identifier && Peek(2).Type == TokenType.Equals))
+            return ParseGoalDeclaration();
+
+        if (Check(TokenType.Init))
         {
-            var idToken = NextToken();
-            Match(TokenType.Equals);
-            var valExpr = ParseExpression();
-            MatchOptional(TokenType.Semicolon, out _);
-            return new VariableAssignmentNode(idToken.Text, valExpr, new SourceSpan(idToken.Span.Start, valExpr.Span.End, _source.FilePath));
+            NextToken(); // consume 'init'
         }
 
-        // Expression statement
+        // Variable assignment or member/index assignment or expression
         var expr = ParseExpression();
+        if (MatchOptional(TokenType.Equals, out _))
+        {
+            var valExpr = ParseExpression();
+            MatchOptional(TokenType.Semicolon, out _);
+            if (expr is MemberAccessExpressionNode memberAccess)
+            {
+                return new MemberAssignmentNode(memberAccess.Target, memberAccess.MemberName, valExpr, new SourceSpan(expr.Span.Start, valExpr.Span.End, _source.FilePath));
+            }
+            if (expr is IndexAccessExpressionNode indexAccess)
+            {
+                return new IndexAssignmentNode(indexAccess.Target, indexAccess.Index, valExpr, new SourceSpan(expr.Span.Start, valExpr.Span.End, _source.FilePath));
+            }
+            if (expr is IdentifierExpressionNode idNode)
+            {
+                return new VariableAssignmentNode(idNode.Name, valExpr, new SourceSpan(expr.Span.Start, valExpr.Span.End, _source.FilePath));
+            }
+        }
+
         MatchOptional(TokenType.Semicolon, out _);
         return new ExpressionStatementNode(expr, expr.Span);
     }
@@ -1380,13 +1908,48 @@ public sealed class Parser
 
         Match(TokenType.Catch);
         string? catchVar = null;
-        if (Check(TokenType.Identifier))
+        if (Check(TokenType.OpenParen))
+        {
+            Match(TokenType.OpenParen);
+            string first = ParseIdentifierName();
+            if (IsContextualIdentifier(Current.Type))
+            {
+                catchVar = ParseIdentifierName();
+            }
+            else
+            {
+                catchVar = first;
+            }
+            Match(TokenType.CloseParen);
+        }
+        else if (Check(TokenType.Identifier))
         {
             catchVar = NextToken().Text;
         }
+
         Match(TokenType.OpenBrace);
         var catchBody = ParseStatementListUntil(TokenType.CloseBrace);
         var closeBrace = Match(TokenType.CloseBrace);
+
+        while (Check(TokenType.Catch))
+        {
+            NextToken();
+            if (Check(TokenType.OpenParen))
+            {
+                Match(TokenType.OpenParen);
+                ParseIdentifierName();
+                if (IsContextualIdentifier(Current.Type)) ParseIdentifierName();
+                Match(TokenType.CloseParen);
+            }
+            else if (Check(TokenType.Identifier))
+            {
+                NextToken();
+            }
+            Match(TokenType.OpenBrace);
+            var additionalBody = ParseStatementListUntil(TokenType.CloseBrace);
+            closeBrace = Match(TokenType.CloseBrace);
+            catchBody.AddRange(additionalBody);
+        }
 
         return new TryCatchStatementNode(tryBody, catchVar, catchBody, new SourceSpan(tryToken.Span.Start, closeBrace.Span.End, _source.FilePath));
     }

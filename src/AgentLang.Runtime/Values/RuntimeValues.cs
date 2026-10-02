@@ -134,3 +134,111 @@ public sealed record AgentReActResult(
 {
     public override string ToString() => FinalAnswer ?? Error ?? $"[AgentReActResult: Success={Success}, Steps={Steps.Count}]";
 }
+
+public sealed class BreakException : Exception { }
+public sealed class ContinueException : Exception { }
+
+public sealed class GoalValue
+{
+    public string Name { get; }
+    public string Description { get; }
+
+    public GoalValue(string name, string description)
+    {
+        Name = name;
+        Description = description;
+    }
+
+    public override string ToString() => Description;
+}
+
+public sealed class AgentExecutionResult
+{
+    public string Output { get; set; }
+    public string Summary { get; set; }
+    public string Status { get; set; }
+    public List<string> Risks { get; set; } = [];
+    public bool Passed { get; set; } = true;
+    public List<string> Errors { get; set; } = [];
+
+    public AgentExecutionResult(string output, string? summary = null, string status = "DONE")
+    {
+        Output = output;
+        Summary = summary ?? output;
+        Status = status;
+    }
+
+    public override string ToString() => Output;
+}
+
+public sealed class StateDefinitionValue
+{
+    public StateDeclarationNode Declaration { get; }
+    public object Runtime { get; }
+
+    public StateDefinitionValue(StateDeclarationNode declaration, object runtime)
+    {
+        Declaration = declaration;
+        Runtime = runtime;
+    }
+
+    public override string ToString() => $"[StateDefinition: {Declaration.Name}]";
+}
+
+public sealed class StateInstanceValue
+{
+    public string StateName { get; }
+    public Dictionary<string, object?> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public StateInstanceValue(string stateName)
+    {
+        StateName = stateName;
+    }
+
+    public object? GetField(string name)
+    {
+        Fields.TryGetValue(name, out var val);
+        return val;
+    }
+
+    public void SetField(string name, object? value)
+    {
+        Fields[name] = value;
+    }
+
+    public override string ToString()
+    {
+        var entries = Fields.Select(kv => $"{kv.Key}: {kv.Value ?? "null"}");
+        return $"{StateName} {{ {string.Join(", ", entries)} }}";
+    }
+}
+
+public sealed class PipelineValue
+{
+    public PipelineDeclarationNode Declaration { get; }
+    public RuntimeScope Closure { get; }
+
+    public PipelineValue(PipelineDeclarationNode declaration, RuntimeScope closure)
+    {
+        Declaration = declaration;
+        Closure = closure;
+    }
+
+    public override string ToString() => $"[Pipeline: {Declaration.Name}]";
+}
+
+public sealed class WorkflowValue
+{
+    public WorkflowDeclarationNode Declaration { get; }
+    public RuntimeScope Closure { get; }
+    public object Runtime { get; }
+
+    public WorkflowValue(WorkflowDeclarationNode declaration, RuntimeScope closure, object runtime)
+    {
+        Declaration = declaration;
+        Closure = closure;
+        Runtime = runtime;
+    }
+
+    public override string ToString() => $"[Workflow: {Declaration.Name}]";
+}

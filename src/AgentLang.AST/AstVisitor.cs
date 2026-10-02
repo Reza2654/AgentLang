@@ -155,6 +155,42 @@ public abstract class AstVisitor : IAstVisitor
         node.PathExpression?.Accept(this);
     }
 
+    public virtual void Visit(GoalDeclarationNode node) => node.Value.Accept(this);
+
+    public virtual void Visit(PipelineDeclarationNode node)
+    {
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(StateDeclarationNode node)
+    {
+        foreach (var field in node.Fields)
+            field.Accept(this);
+    }
+
+    public virtual void Visit(StateFieldNode node) => node.DefaultValue?.Accept(this);
+
+    public virtual void Visit(WorkflowDeclarationNode node)
+    {
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(GuardrailsDeclarationNode node)
+    {
+        foreach (var rule in node.Rules)
+            rule.Accept(this);
+    }
+
+    public virtual void Visit(GuardrailRuleNode node) => node.Value?.Accept(this);
+
+    public virtual void Visit(OnEventDeclarationNode node)
+    {
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
     public virtual void Visit(BlockStatementNode node)
     {
         foreach (var stmt in node.Statements)
@@ -249,6 +285,61 @@ public abstract class AstVisitor : IAstVisitor
         node.InputOrPrompt.Accept(this);
         node.OutputOrChosen.Accept(this);
         node.Rejected?.Accept(this);
+    }
+
+    public virtual void Visit(DecideStatementNode node)
+    {
+        node.Condition?.Accept(this);
+        if (node.Action != null)
+        {
+            foreach (var stmt in node.Action)
+                stmt.Accept(this);
+        }
+        foreach (var c in node.Cases)
+            c.Accept(this);
+        if (node.DefaultBranch != null)
+        {
+            foreach (var stmt in node.DefaultBranch)
+                stmt.Accept(this);
+        }
+    }
+
+    public virtual void Visit(DecideCaseNode node)
+    {
+        node.Condition.Accept(this);
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(LoopStatementNode node)
+    {
+        node.Condition?.Accept(this);
+        node.FromValue?.Accept(this);
+        node.ToValue?.Accept(this);
+        node.MaxRetries?.Accept(this);
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+    }
+
+    public virtual void Visit(BudgetStatementNode node)
+    {
+        node.Value.Accept(this);
+    }
+
+    public virtual void Visit(BreakStatementNode node) { }
+    public virtual void Visit(ContinueStatementNode node) { }
+
+    public virtual void Visit(MemberAssignmentNode node)
+    {
+        node.Target.Accept(this);
+        node.Value.Accept(this);
+    }
+
+    public virtual void Visit(IndexAssignmentNode node)
+    {
+        node.Target.Accept(this);
+        node.Index.Accept(this);
+        node.Value.Accept(this);
     }
 
     public virtual void Visit(LiteralExpressionNode node) { }

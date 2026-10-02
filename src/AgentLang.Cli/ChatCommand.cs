@@ -13,7 +13,7 @@ public static class ChatCommand
         if (args.Length < 2)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("Error: Missing file path. Usage: agent chat <file.agent> [AgentName]");
+            Console.WriteLine("Error: Missing file path. Usage: agent chat <file.agt> [AgentName]");
             Console.ResetColor();
             return 1;
         }

@@ -19,12 +19,14 @@ public static class TestCommand
         }
         else if (Directory.Exists(target))
         {
+            files.AddRange(Directory.GetFiles(target, "*test*.agt", SearchOption.AllDirectories));
             files.AddRange(Directory.GetFiles(target, "*test*.agent", SearchOption.AllDirectories));
             if (files.Count == 0)
             {
                 string testsDir = Path.Combine(target, "tests");
                 if (Directory.Exists(testsDir))
                 {
+                    files.AddRange(Directory.GetFiles(testsDir, "*.agt", SearchOption.AllDirectories));
                     files.AddRange(Directory.GetFiles(testsDir, "*.agent", SearchOption.AllDirectories));
                 }
             }
@@ -32,7 +34,7 @@ public static class TestCommand
 
         if (files.Count == 0)
         {
-            Console.WriteLine("No test files found matching '*test*.agent' or in 'tests/' directory.");
+            Console.WriteLine("No test files found matching '*test*.agt', '*test*.agent' or in 'tests/' directory.");
             return 0;
         }
 

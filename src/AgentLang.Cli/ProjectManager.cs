@@ -67,7 +67,7 @@ public static class ProjectManager
             """;
         File.WriteAllText(Path.Combine(projectPath, "agents", "researcher.agent"), researcherAgent);
 
-        // 4. main.agent
+        // 4. main.agt
         string mainAgent = """
             permission DefaultPermission {
                 allow browser.search
@@ -97,17 +97,17 @@ public static class ProjectManager
                 print("Workflow finished successfully!")
             }
             """;
-        File.WriteAllText(Path.Combine(projectPath, "main.agent"), mainAgent);
+        File.WriteAllText(Path.Combine(projectPath, "main.agt"), mainAgent);
 
         // 5. README.md
         string readme = $"""
             # {projectName}
 
-            Created with AgentLang v0.1.0-alpha.
+            Created with AgentLang v0.6.0.
 
             ## Run
             ```bash
-            agent run main.agent
+            agent run main.agt
             ```
             """;
         File.WriteAllText(Path.Combine(projectPath, "README.md"), readme);

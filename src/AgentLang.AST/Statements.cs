@@ -216,3 +216,127 @@ public sealed class LearnStatementNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class DecideCaseNode(
+    ExpressionNode condition,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public ExpressionNode Condition { get; } = condition;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class DecideStatementNode(
+    ExpressionNode? condition,
+    string? reasoning,
+    IReadOnlyList<StatementNode>? action,
+    IReadOnlyList<DecideCaseNode>? cases,
+    IReadOnlyList<StatementNode>? defaultBranch,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode? Condition { get; } = condition;
+    public string? Reasoning { get; } = reasoning;
+    public IReadOnlyList<StatementNode>? Action { get; } = action;
+    public IReadOnlyList<DecideCaseNode> Cases { get; } = cases ?? [];
+    public IReadOnlyList<StatementNode>? DefaultBranch { get; } = defaultBranch;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public enum LoopKind
+{
+    Until,
+    Range,
+    Count,
+    Infinite
+}
+
+public sealed class LoopStatementNode(
+    LoopKind kind,
+    ExpressionNode? condition,
+    ExpressionNode? maxRetries,
+    string? loopVariable,
+    ExpressionNode? fromValue,
+    ExpressionNode? toValue,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public LoopKind Kind { get; } = kind;
+    public ExpressionNode? Condition { get; } = condition;
+    public ExpressionNode? MaxRetries { get; } = maxRetries;
+    public string? LoopVariable { get; } = loopVariable;
+    public ExpressionNode? FromValue { get; } = fromValue;
+    public ExpressionNode? ToValue { get; } = toValue;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class BudgetStatementNode(
+    string budgetItem,
+    ExpressionNode value,
+    string? unit,
+    SourceSpan span,
+    IReadOnlyDictionary<string, ExpressionNode>? limits = null,
+    IReadOnlyList<StatementNode>? body = null)
+    : StatementNode(span)
+{
+    public string BudgetItem { get; } = budgetItem;
+    public ExpressionNode Value { get; } = value;
+    public string? Unit { get; } = unit;
+    public IReadOnlyDictionary<string, ExpressionNode>? Limits { get; } = limits;
+    public IReadOnlyList<StatementNode>? Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class BreakStatementNode(SourceSpan span) : StatementNode(span)
+{
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class ContinueStatementNode(SourceSpan span) : StatementNode(span)
+{
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class MemberAssignmentNode(
+    ExpressionNode target,
+    string memberName,
+    ExpressionNode value,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode Target { get; } = target;
+    public string MemberName { get; } = memberName;
+    public ExpressionNode Value { get; } = value;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class IndexAssignmentNode(
+    ExpressionNode target,
+    ExpressionNode index,
+    ExpressionNode value,
+    SourceSpan span)
+    : StatementNode(span)
+{
+    public ExpressionNode Target { get; } = target;
+    public ExpressionNode Index { get; } = index;
+    public ExpressionNode Value { get; } = value;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+

@@ -1,0 +1,106 @@
+// AgentLang v0.6.0 - Agent Scripting Showcase (.agt)
+
+// 1. ایجنت دستیار پژوهش با مدل، پروسنا، ابزارها و استراتژی ReAct
+agent ResearchAssistant {
+    model: "claude-3-opus"
+    persona: "تحلیل‌گر دقیق و خلاصه، متمرکز بر داده‌های موثق"
+    tools: [web_search, summarize_document]
+    memory: ConversationBuffer(window: 5)
+    strategy: ReAct(max_steps: 4)
+}
+
+// 2. تعریف هدف و سپردن آن به ایجنت
+goal task1 = "آخرین مقالات مربوط به هوش مصنوعی در سال ۲۰۲۶ را بررسی کن و یک خلاصه ۳ خطی بده."
+
+print("Executing Goal with ResearchAssistant...")
+response = ResearchAssistant.achieve(task1)
+print(response.output)
+
+// 3. ایجنت‌ها و پایپ‌لاین تولید و نقد محتوا با حلقه اصلاح خودکار
+agent Writer {
+    model: "gpt-4o"
+    goal: "نگارش متن بر اساس اطلاعات ورودی"
+}
+
+agent Critic {
+    model: "gpt-4o"
+    rules: [
+        "نباید غلط املایی وجود داشته باشد",
+        "لحن باید رسمی باشد"
+    ]
+}
+
+pipeline ContentPipeline {
+    input topic: string
+    
+    draft = Writer.draft(topic)
+    
+    loop until Critic.approves(draft) max_retries 3 {
+        feedback = Critic.review(draft)
+        draft = Writer.revise(draft, with: feedback)
+    }
+    
+    return draft
+}
+
+print("\nRunning ContentPipeline...")
+content = ContentPipeline.run("آینده انرژی‌های تجدیدپذیر")
+print("Pipeline Output: " + content.output)
+
+// 4. تصمیم‌گیری معنایی همراه با reasoning و action
+suspicious_event = true
+client_ip = "10.0.0.42"
+
+decide (suspicious_event) {
+    reasoning: "بررسی الگوهای نفوذ یا حملات Brute Force"
+    action {
+        print(f"Action Taken: Blocked IP {client_ip}")
+    }
+}
+
+// 5. تصمیم‌گیری چندحالته (Decide Cases)
+sentiment = "refund_request"
+decide {
+    case sentiment == "very_angry":
+        print("Decision: Transferring to human specialist")
+    case sentiment == "refund_request":
+        print("Decision: Automatically creating refund ticket")
+    default:
+        print("Decision: Automated KB answer")
+}
+
+// 6. جریان کاری تیمی (Workflow) همراه با State مشترک
+state ProjectState {
+    spec: string = ""
+    code: string = ""
+    status: enum { PLANNING, CODING, DONE } = PLANNING
+}
+
+agent TechLead {
+    model: "gpt-4o"
+    role: "شکستن نیازمندی‌ها"
+}
+
+agent Developer {
+    model: "claude-3-5-sonnet"
+    role: "نوشتن کد"
+}
+
+workflow BuildFeature(story: string) -> ProjectState {
+    init state = ProjectState()
+    state.spec = TechLead.execute("Design: " + story)
+    state.status = CODING
+    
+    loop attempts from 1 to 3 {
+        state.code = Developer.execute("Implement: " + state.spec)
+        state.status = DONE
+        break
+    }
+    
+    return state
+}
+
+print("\nRunning BuildFeature Workflow...")
+finalState = BuildFeature("ماژول اعتبارسنجی کارت بانکی")
+print("Workflow Final Status: " + finalState.status)
+print("Agent Scripting completed successfully!")

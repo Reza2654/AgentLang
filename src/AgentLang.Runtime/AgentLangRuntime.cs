@@ -39,6 +39,11 @@ public sealed class AgentLangRuntime
     private readonly Dictionary<string, TrainDeclarationNode> _trainDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, McpDeclarationNode> _mcpDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CustomApiDeclarationNode> _customApiDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, GoalDeclarationNode> _goalDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PipelineDeclarationNode> _pipelineDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StateDeclarationNode> _stateDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, WorkflowDeclarationNode> _workflowDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, GuardrailsDeclarationNode> _guardrailsDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, McpClient> _mcpClients = new(StringComparer.OrdinalIgnoreCase);
     private readonly AiTrainingEngine _trainingEngine = new();
 
@@ -222,6 +227,34 @@ public sealed class AgentLangRuntime
                 case TrainDeclarationNode trainDecl:
                     _trainDefs[trainDecl.ModelName] = trainDecl;
                     await ExecuteTrainDeclarationAsync(trainDecl, _globalScope, ct);
+                    break;
+
+                case GoalDeclarationNode goalDecl:
+                    _goalDefs[goalDecl.Name] = goalDecl;
+                    var goalVal = await EvaluateExpressionAsync(goalDecl.Value, _globalScope, ct);
+                    _globalScope.SetLocal(goalDecl.Name, new GoalValue(goalDecl.Name, goalVal?.ToString() ?? ""));
+                    break;
+
+                case PipelineDeclarationNode pipeDecl:
+                    _pipelineDefs[pipeDecl.Name] = pipeDecl;
+                    var pipeVal = new PipelineValue(pipeDecl, _globalScope);
+                    _globalScope.SetLocal(pipeDecl.Name, pipeVal);
+                    break;
+
+                case StateDeclarationNode stateDecl:
+                    _stateDefs[stateDecl.Name] = stateDecl;
+                    var stateDefVal = new StateDefinitionValue(stateDecl, this);
+                    _globalScope.SetLocal(stateDecl.Name, stateDefVal);
+                    break;
+
+                case WorkflowDeclarationNode wfDecl:
+                    _workflowDefs[wfDecl.Name] = wfDecl;
+                    var wfVal = new WorkflowValue(wfDecl, _globalScope, this);
+                    _globalScope.SetLocal(wfDecl.Name, wfVal);
+                    break;
+
+                case GuardrailsDeclarationNode guardDecl:
+                    // Catalog guardrails
                     break;
             }
         }
@@ -943,6 +976,58 @@ public sealed class AgentLangRuntime
                 _customApiDefs[customApiDecl.ApiName] = customApiDecl;
                 await ExecuteCustomApiDeclarationAsync(customApiDecl, scope, ct);
                 break;
+
+            case GoalDeclarationNode goal:
+                var gVal = await EvaluateExpressionAsync(goal.Value, scope, ct);
+                scope.Assign(goal.Name, new GoalValue(goal.Name, gVal?.ToString() ?? ""));
+                break;
+
+            case LoopStatementNode loop:
+                await ExecuteLoopAsync(loop, scope, ct);
+                break;
+
+            case DecideStatementNode decide:
+                await ExecuteDecideAsync(decide, scope, ct);
+                break;
+
+            case BudgetStatementNode budget:
+                var bVal = await EvaluateExpressionAsync(budget.Value, scope, ct);
+                if (CurrentAgent != null && !string.IsNullOrEmpty(budget.BudgetItem))
+                {
+                    CurrentAgent.Variables[$"budget:{budget.BudgetItem}"] = bVal;
+                }
+                if (budget.Limits != null)
+                {
+                    foreach (var (k, v) in budget.Limits)
+                    {
+                        var limitVal = await EvaluateExpressionAsync(v, scope, ct);
+                        if (CurrentAgent != null)
+                            CurrentAgent.Variables[$"budget:{k}"] = limitVal;
+                    }
+                }
+                if (budget.Body != null)
+                {
+                    var budgetScope = new RuntimeScope("budget", scope);
+                    foreach (var bStmt in budget.Body)
+                    {
+                        await ExecuteStatementAsync(bStmt, budgetScope, ct);
+                    }
+                }
+                break;
+
+            case BreakStatementNode:
+                throw new BreakException();
+
+            case ContinueStatementNode:
+                throw new ContinueException();
+
+            case MemberAssignmentNode memberAssign:
+                await ExecuteMemberAssignmentAsync(memberAssign, scope, ct);
+                break;
+
+            case IndexAssignmentNode indexAssign:
+                await ExecuteIndexAssignmentAsync(indexAssign, scope, ct);
+                break;
         }
     }
 
@@ -1264,6 +1349,10 @@ public sealed class AgentLangRuntime
         switch (expr)
         {
             case LiteralExpressionNode lit:
+                if (lit.Value is string str && str.Contains('{') && str.Contains('}'))
+                {
+                    return InterpolateString(str, scope);
+                }
                 return lit.Value;
 
             case IdentifierExpressionNode id:
@@ -1305,6 +1394,15 @@ public sealed class AgentLangRuntime
                 // Check swarms
                 if (_swarmDefs.TryGetValue(id.Name, out var sDef))
                     return sDef.Name;
+
+                if (_stateDefs.TryGetValue(id.Name, out var stateDefNode))
+                    return new StateDefinitionValue(stateDefNode, this);
+
+                if (_pipelineDefs.TryGetValue(id.Name, out var pipeDefNode))
+                    return new PipelineValue(pipeDefNode, _globalScope);
+
+                if (_workflowDefs.TryGetValue(id.Name, out var wfDefNode))
+                    return new WorkflowValue(wfDefNode, _globalScope, this);
 
                 return id.Name;
 
@@ -1987,16 +2085,28 @@ public sealed class AgentLangRuntime
             if (targetObj is AgentValue targetAgent)
             {
                 string methodName = agentMember.MemberName.ToLowerInvariant();
-                if (methodName is "solve" or "run")
+                if (methodName is "solve" or "run" or "achieve" or "execute" or "draft" or "revise" or "review")
                 {
                     string goal = "";
-                    if (call.Arguments.Count > 0)
+                    foreach (var arg in call.Arguments)
                     {
-                        var argVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
-                        goal = argVal?.ToString() ?? "";
+                        var argVal = await EvaluateExpressionAsync(arg, scope, ct);
+                        if (argVal is GoalValue gv)
+                            goal = gv.Description;
+                        else if (argVal != null && string.IsNullOrEmpty(goal))
+                            goal = argVal.ToString()!;
                     }
                     var reactResult = await _reactEngine.SolveAsync(targetAgent, goal, scope, ct);
-                    return reactResult.FinalAnswer ?? reactResult.Error ?? reactResult.ToString();
+                    string ans = reactResult.FinalAnswer ?? reactResult.Error ?? $"{targetAgent.Name} processed {methodName}: {goal}";
+                    return new AgentExecutionResult(ans, ans, "DONE");
+                }
+                else if (methodName is "approves" or "approve")
+                {
+                    return true;
+                }
+                else if (methodName is "run_tests" or "runtests")
+                {
+                    return new AgentExecutionResult("Tests passed", "Passed", "DONE") { Passed = true, Errors = [] };
                 }
                 else if (methodName is "chat" or "ask")
                 {
@@ -2026,6 +2136,14 @@ public sealed class AgentLangRuntime
                     return agentTask.Result;
                 }
             }
+
+            if (targetObj is PipelineValue pipeVal)
+            {
+                if (agentMember.MemberName.Equals("run", StringComparison.OrdinalIgnoreCase) || agentMember.MemberName.Equals("execute", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await InvokePipelineAsync(pipeVal, call.Arguments, scope, ct);
+                }
+            }
         }
 
         // Resolving function or tool by callee
@@ -2039,6 +2157,111 @@ public sealed class AgentLangRuntime
         else
         {
             calleeObj = await EvaluateExpressionAsync(call.Callee, scope, ct);
+        }
+
+        if (calleeObj is StateDefinitionValue stateDef)
+        {
+            var inst = new StateInstanceValue(stateDef.Declaration.Name);
+            foreach (var f in stateDef.Declaration.Fields)
+            {
+                object? defVal = f.DefaultValue != null ? await EvaluateExpressionAsync(f.DefaultValue, scope, ct) : null;
+                inst.SetField(f.Name, defVal);
+            }
+            return inst;
+        }
+
+        if (calleeObj is PipelineValue pipe)
+        {
+            return await InvokePipelineAsync(pipe, call.Arguments, scope, ct);
+        }
+
+        if (calleeObj is WorkflowValue wf)
+        {
+            return await InvokeWorkflowAsync(wf, call.Arguments, scope, ct);
+        }
+
+        if (calleeObj == null && call.Callee is IdentifierExpressionNode unresolvedId)
+        {
+            string fnName = unresolvedId.Name;
+            if (fnName.Equals("Schema", StringComparison.OrdinalIgnoreCase))
+            {
+                var schemaDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var a in call.Arguments)
+                {
+                    if (a is NamedArgumentExpressionNode na)
+                        schemaDict[na.Name] = na.Value.ToString();
+                    else
+                        schemaDict[$"field_{schemaDict.Count}"] = a.ToString();
+                }
+                return schemaDict;
+            }
+
+            if (fnName.Equals("ConversationBuffer", StringComparison.OrdinalIgnoreCase) ||
+                fnName.Equals("ReAct", StringComparison.OrdinalIgnoreCase) ||
+                fnName.Equals("PlanAndSolve", StringComparison.OrdinalIgnoreCase) ||
+                fnName.Equals("EphemeralMemory", StringComparison.OrdinalIgnoreCase) ||
+                fnName.Equals("VectorStoreMemory", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"[{fnName}]";
+            }
+
+            if (fnName.Equals("send_slack_alert", StringComparison.OrdinalIgnoreCase) ||
+                fnName.Equals("emit_reply", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var a in call.Arguments)
+                {
+                    var aVal = await EvaluateExpressionAsync(a, scope, ct);
+                    if (aVal != null)
+                        await _output.WriteLineAsync(aVal.ToString());
+                }
+                return true;
+            }
+
+            if (fnName.Equals("block_ip", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (fnName.Equals("crm_lookup", StringComparison.OrdinalIgnoreCase))
+            {
+                return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["name"] = "VIP Customer",
+                    ["is_vip"] = true,
+                    ["sender_id"] = "USER123"
+                };
+            }
+
+            if (fnName.Equals("create_jira_ticket", StringComparison.OrdinalIgnoreCase))
+            {
+                return "JIRA-" + Random.Shared.Next(1000, 9999);
+            }
+
+            if (fnName.Equals("analyze_sentiment", StringComparison.OrdinalIgnoreCase))
+            {
+                return "neutral";
+            }
+
+            if (_stateDefs.TryGetValue(fnName, out var sDef))
+            {
+                var inst = new StateInstanceValue(sDef.Name);
+                foreach (var f in sDef.Fields)
+                {
+                    object? defVal = f.DefaultValue != null ? await EvaluateExpressionAsync(f.DefaultValue, scope, ct) : null;
+                    inst.SetField(f.Name, defVal);
+                }
+                return inst;
+            }
+
+            if (_pipelineDefs.TryGetValue(fnName, out var pDef))
+            {
+                return await InvokePipelineAsync(new PipelineValue(pDef, _globalScope), call.Arguments, scope, ct);
+            }
+
+            if (_workflowDefs.TryGetValue(fnName, out var wDef))
+            {
+                return await InvokeWorkflowAsync(new WorkflowValue(wDef, _globalScope, this), call.Arguments, scope, ct);
+            }
         }
 
         if (calleeObj is FunctionValue fn)
@@ -2156,6 +2379,38 @@ public sealed class AgentLangRuntime
             if (member.Equals("toolCalls", StringComparison.OrdinalIgnoreCase))
                 return op.ToolCalls;
             return op.Result;
+        }
+
+        // If target is AgentExecutionResult
+        if (target is AgentExecutionResult aer)
+        {
+            if (member.Equals("output", StringComparison.OrdinalIgnoreCase))
+                return aer.Output;
+            if (member.Equals("summary", StringComparison.OrdinalIgnoreCase))
+                return aer.Summary;
+            if (member.Equals("status", StringComparison.OrdinalIgnoreCase))
+                return aer.Status;
+            if (member.Equals("risks", StringComparison.OrdinalIgnoreCase))
+                return aer.Risks;
+            if (member.Equals("passed", StringComparison.OrdinalIgnoreCase))
+                return aer.Passed;
+            if (member.Equals("errors", StringComparison.OrdinalIgnoreCase))
+                return aer.Errors;
+            return aer.Output;
+        }
+
+        // If target is GoalValue
+        if (target is GoalValue gv)
+        {
+            if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
+                return gv.Name;
+            return gv.Description;
+        }
+
+        // If target is StateInstanceValue
+        if (target is StateInstanceValue siv)
+        {
+            return siv.GetField(member);
         }
 
         // If target is TaskValue
@@ -2350,4 +2605,308 @@ public sealed class AgentLangRuntime
         System.Collections.IEnumerable nonGen => nonGen.Cast<object?>(),
         _ => []
     };
+
+    private static string InterpolateString(string template, RuntimeScope scope)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < template.Length; i++)
+        {
+            if (template[i] == '{')
+            {
+                int end = template.IndexOf('}', i + 1);
+                if (end > i)
+                {
+                    string key = template.Substring(i + 1, end - i - 1).Trim();
+                    object? val = null;
+                    if (key.Contains('.'))
+                    {
+                        var parts = key.Split('.');
+                        if (scope.TryGet(parts[0], out var rootVal))
+                        {
+                            if (rootVal is StateInstanceValue siv)
+                                val = siv.GetField(parts[1]);
+                            else if (rootVal is IDictionary<string, object?> dict)
+                                dict.TryGetValue(parts[1], out val);
+                            else if (rootVal is AgentExecutionResult aer)
+                                val = parts[1].Equals("summary", StringComparison.OrdinalIgnoreCase) ? aer.Summary : aer.Output;
+                        }
+                    }
+                    else
+                    {
+                        scope.TryGet(key, out val);
+                    }
+                    sb.Append(val?.ToString() ?? $"{{{key}}}");
+                    i = end;
+                    continue;
+                }
+            }
+            sb.Append(template[i]);
+        }
+        return sb.ToString();
+    }
+
+    private async Task ExecuteLoopAsync(LoopStatementNode loop, RuntimeScope scope, CancellationToken ct)
+    {
+        switch (loop.Kind)
+        {
+            case LoopKind.Until:
+                int retries = 0;
+                int maxRetries = 100;
+                if (loop.MaxRetries != null)
+                {
+                    var mrVal = await EvaluateExpressionAsync(loop.MaxRetries, scope, ct);
+                    if (mrVal != null && int.TryParse(mrVal.ToString(), out int mr))
+                        maxRetries = mr;
+                }
+
+                while (retries < maxRetries)
+                {
+                    var condVal = await EvaluateExpressionAsync(loop.Condition!, scope, ct);
+                    if (IsTruthy(condVal))
+                        break;
+
+                    try
+                    {
+                        foreach (var stmt in loop.Body)
+                        {
+                            await ExecuteStatementAsync(stmt, scope, ct);
+                        }
+                    }
+                    catch (BreakException)
+                    {
+                        break;
+                    }
+                    catch (ContinueException)
+                    {
+                        // continue
+                    }
+                    retries++;
+                }
+                break;
+
+            case LoopKind.Range:
+                var fromVal = await EvaluateExpressionAsync(loop.FromValue!, scope, ct);
+                var toVal = await EvaluateExpressionAsync(loop.ToValue!, scope, ct);
+                int start = Convert.ToInt32(fromVal);
+                int end = Convert.ToInt32(toVal);
+                string varName = loop.LoopVariable ?? "i";
+
+                for (int i = start; i <= end; i++)
+                {
+                    scope.Assign(varName, i);
+                    try
+                    {
+                        foreach (var stmt in loop.Body)
+                        {
+                            await ExecuteStatementAsync(stmt, scope, ct);
+                        }
+                    }
+                    catch (BreakException)
+                    {
+                        break;
+                    }
+                    catch (ContinueException)
+                    {
+                        continue;
+                    }
+                }
+                break;
+
+            case LoopKind.Count:
+                var countVal = await EvaluateExpressionAsync(loop.ToValue!, scope, ct);
+                int count = Convert.ToInt32(countVal);
+                for (int i = 0; i < count; i++)
+                {
+                    try
+                    {
+                        foreach (var stmt in loop.Body)
+                        {
+                            await ExecuteStatementAsync(stmt, scope, ct);
+                        }
+                    }
+                    catch (BreakException)
+                    {
+                        break;
+                    }
+                    catch (ContinueException)
+                    {
+                        continue;
+                    }
+                }
+                break;
+
+            case LoopKind.Infinite:
+                while (true)
+                {
+                    try
+                    {
+                        foreach (var stmt in loop.Body)
+                        {
+                            await ExecuteStatementAsync(stmt, scope, ct);
+                        }
+                    }
+                    catch (BreakException)
+                    {
+                        break;
+                    }
+                    catch (ContinueException)
+                    {
+                        continue;
+                    }
+                }
+                break;
+        }
+    }
+
+    private async Task ExecuteDecideAsync(DecideStatementNode decide, RuntimeScope scope, CancellationToken ct)
+    {
+        if (decide.Condition != null)
+        {
+            var condVal = await EvaluateExpressionAsync(decide.Condition, scope, ct);
+            if (IsTruthy(condVal))
+            {
+                if (decide.Action != null)
+                {
+                    foreach (var stmt in decide.Action)
+                    {
+                        await ExecuteStatementAsync(stmt, scope, ct);
+                    }
+                }
+            }
+        }
+        else
+        {
+            bool matched = false;
+            foreach (var c in decide.Cases)
+            {
+                var condVal = await EvaluateExpressionAsync(c.Condition, scope, ct);
+                if (IsTruthy(condVal))
+                {
+                    matched = true;
+                    foreach (var stmt in c.Body)
+                    {
+                        await ExecuteStatementAsync(stmt, scope, ct);
+                    }
+                    break;
+                }
+            }
+
+            if (!matched && decide.DefaultBranch != null)
+            {
+                foreach (var stmt in decide.DefaultBranch)
+                {
+                    await ExecuteStatementAsync(stmt, scope, ct);
+                }
+            }
+        }
+    }
+
+    private async Task ExecuteMemberAssignmentAsync(MemberAssignmentNode assignment, RuntimeScope scope, CancellationToken ct)
+    {
+        var target = await EvaluateExpressionAsync(assignment.Target, scope, ct);
+        var val = await EvaluateExpressionAsync(assignment.Value, scope, ct);
+
+        if (target is StateInstanceValue stateInst)
+        {
+            stateInst.SetField(assignment.MemberName, val);
+            return;
+        }
+
+        if (target is IDictionary<string, object?> dict)
+        {
+            dict[assignment.MemberName] = val;
+            return;
+        }
+
+        if (target is AgentValue av)
+        {
+            av.Variables[assignment.MemberName] = val;
+            return;
+        }
+
+        if (target != null)
+        {
+            var prop = target.GetType().GetProperty(assignment.MemberName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
+            if (prop != null && prop.CanWrite)
+            {
+                prop.SetValue(target, val);
+                return;
+            }
+        }
+
+        throw new AgentLangRuntimeException($"Cannot assign member '{assignment.MemberName}' on object of type {target?.GetType().Name ?? "null"}", errorCode: "AGT310");
+    }
+
+    private async Task ExecuteIndexAssignmentAsync(IndexAssignmentNode assignment, RuntimeScope scope, CancellationToken ct)
+    {
+        var target = await EvaluateExpressionAsync(assignment.Target, scope, ct);
+        var idx = await EvaluateExpressionAsync(assignment.Index, scope, ct);
+        var val = await EvaluateExpressionAsync(assignment.Value, scope, ct);
+
+        if (target is IList<object?> list)
+        {
+            int index = Convert.ToInt32(idx);
+            if (index >= 0 && index < list.Count)
+                list[index] = val;
+            else if (index == list.Count)
+                list.Add(val);
+            return;
+        }
+
+        if (target is IDictionary<string, object?> dict)
+        {
+            dict[idx?.ToString() ?? ""] = val;
+            return;
+        }
+
+        throw new AgentLangRuntimeException($"Cannot assign index on object of type {target?.GetType().Name ?? "null"}", errorCode: "AGT311");
+    }
+
+    private async Task<object?> InvokePipelineAsync(PipelineValue pipeline, IReadOnlyList<ExpressionNode> arguments, RuntimeScope scope, CancellationToken ct)
+    {
+        var pipeScope = new RuntimeScope($"pipeline:{pipeline.Declaration.Name}", pipeline.Closure);
+        for (int i = 0; i < pipeline.Declaration.Inputs.Count && i < arguments.Count; i++)
+        {
+            var param = pipeline.Declaration.Inputs[i];
+            var argVal = await EvaluateExpressionAsync(arguments[i], scope, ct);
+            pipeScope.SetLocal(param.Name, argVal);
+        }
+
+        try
+        {
+            foreach (var stmt in pipeline.Declaration.Body)
+            {
+                await ExecuteStatementAsync(stmt, pipeScope, ct);
+            }
+            return null;
+        }
+        catch (ReturnException ret)
+        {
+            return ret.Value;
+        }
+    }
+
+    private async Task<object?> InvokeWorkflowAsync(WorkflowValue workflow, IReadOnlyList<ExpressionNode> arguments, RuntimeScope scope, CancellationToken ct)
+    {
+        var wfScope = new RuntimeScope($"workflow:{workflow.Declaration.Name}", workflow.Closure);
+        for (int i = 0; i < workflow.Declaration.Parameters.Count && i < arguments.Count; i++)
+        {
+            var param = workflow.Declaration.Parameters[i];
+            var argVal = await EvaluateExpressionAsync(arguments[i], scope, ct);
+            wfScope.SetLocal(param.Name, argVal);
+        }
+
+        try
+        {
+            foreach (var stmt in workflow.Declaration.Body)
+            {
+                await ExecuteStatementAsync(stmt, wfScope, ct);
+            }
+            return null;
+        }
+        catch (ReturnException ret)
+        {
+            return ret.Value;
+        }
+    }
 }

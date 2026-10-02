@@ -376,6 +376,118 @@ public sealed class CustomApiDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class GoalDeclarationNode(
+    string name,
+    ExpressionNode value,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public ExpressionNode Value { get; } = value;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class PipelineDeclarationNode(
+    string name,
+    IReadOnlyList<ToolParameterNode> inputs,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public IReadOnlyList<ToolParameterNode> Inputs { get; } = inputs;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class StateFieldNode(
+    string name,
+    string? typeName,
+    ExpressionNode? defaultValue,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public string Name { get; } = name;
+    public string? TypeName { get; } = typeName;
+    public ExpressionNode? DefaultValue { get; } = defaultValue;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class StateDeclarationNode(
+    string name,
+    IReadOnlyList<StateFieldNode> fields,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public IReadOnlyList<StateFieldNode> Fields { get; } = fields;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class WorkflowDeclarationNode(
+    string name,
+    IReadOnlyList<ToolParameterNode> parameters,
+    string? returnType,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public IReadOnlyList<ToolParameterNode> Parameters { get; } = parameters;
+    public string? ReturnType { get; } = returnType;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class GuardrailRuleNode(
+    string kind,
+    ExpressionNode value,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public string Kind { get; } = kind;
+    public ExpressionNode Value { get; } = value;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class GuardrailsDeclarationNode(
+    IReadOnlyList<GuardrailRuleNode> rules,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public IReadOnlyList<GuardrailRuleNode> Rules { get; } = rules;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class OnEventDeclarationNode(
+    string eventType,
+    string parameterName,
+    IReadOnlyList<StatementNode> body,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string EventType { get; } = eventType;
+    public string ParameterName { get; } = parameterName;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class MainBlockNode(
     IReadOnlyList<StatementNode> statements,
     SourceSpan span)

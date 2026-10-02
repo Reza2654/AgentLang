@@ -191,6 +191,22 @@ public sealed class SemanticAnalyzer : AstVisitor
                     _globalScope.TryDeclare(new Symbol($"{api.ApiName}.{method.Name}", SymbolKind.Tool, method.Span, method));
                 }
                 break;
+
+            case GoalDeclarationNode goal:
+                _globalScope.DeclareOrAssign(new Symbol(goal.Name, SymbolKind.Variable, goal.Span, goal));
+                break;
+
+            case PipelineDeclarationNode pipe:
+                _globalScope.DeclareOrAssign(new Symbol(pipe.Name, SymbolKind.Function, pipe.Span, pipe));
+                break;
+
+            case StateDeclarationNode state:
+                _globalScope.DeclareOrAssign(new Symbol(state.Name, SymbolKind.Variable, state.Span, state));
+                break;
+
+            case WorkflowDeclarationNode wf:
+                _globalScope.DeclareOrAssign(new Symbol(wf.Name, SymbolKind.Function, wf.Span, wf));
+                break;
         }
     }
 
@@ -247,7 +263,19 @@ public sealed class SemanticAnalyzer : AstVisitor
                         if (elem is IdentifierExpressionNode toolId)
                         {
                             var toolSym = _globalScope.Lookup(toolId.Name);
-                            if (toolSym == null || (toolSym.Kind != SymbolKind.Tool && toolSym.Kind != SymbolKind.McpServer && toolSym.Kind != SymbolKind.CustomApi))
+                            if (toolSym == null)
+                            {
+                                string? suggestion = FindClosestMatch(toolId.Name, BuiltInTools.Concat(_globalScope.AllSymbols().Where(s => s.Kind == SymbolKind.Tool).Select(s => s.Name)));
+                                if (suggestion != null)
+                                {
+                                    _diagnostics.ReportError("AL2006", $"Unknown tool '{toolId.Name}'", toolId.Span, $"did you mean '{suggestion}'?");
+                                }
+                                else
+                                {
+                                    _globalScope.TryDeclare(new Symbol(toolId.Name, SymbolKind.Tool, toolId.Span, null));
+                                }
+                            }
+                            else if (toolSym.Kind != SymbolKind.Tool && toolSym.Kind != SymbolKind.McpServer && toolSym.Kind != SymbolKind.CustomApi)
                             {
                                 string? suggestion = FindClosestMatch(toolId.Name, BuiltInTools.Concat(_globalScope.AllSymbols().Where(s => s.Kind == SymbolKind.Tool).Select(s => s.Name)));
                                 _diagnostics.ReportError("AL2006", $"Unknown tool '{toolId.Name}'", toolId.Span, suggestion != null ? $"did you mean '{suggestion}'?" : null);
@@ -560,6 +588,116 @@ public sealed class SemanticAnalyzer : AstVisitor
                 _diagnostics.ReportWarning("AL2017", $"Unknown dataset '{idNode.Name}' in learn statement", idNode.Span);
             }
         }
+    }
+
+    public override void Visit(GoalDeclarationNode node)
+    {
+        node.Value.Accept(this);
+        _currentScope.DeclareOrAssign(new Symbol(node.Name, SymbolKind.Variable, node.Span));
+    }
+
+    public override void Visit(PipelineDeclarationNode node)
+    {
+        var pipeScope = new Scope($"pipeline:{node.Name}", _currentScope);
+        var prev = _currentScope;
+        _currentScope = pipeScope;
+        foreach (var input in node.Inputs)
+        {
+            _currentScope.TryDeclare(new Symbol(input.Name, SymbolKind.Variable, input.Span));
+        }
+        foreach (var stmt in node.Body)
+        {
+            stmt.Accept(this);
+        }
+        _currentScope = prev;
+    }
+
+    public override void Visit(StateDeclarationNode node)
+    {
+        foreach (var field in node.Fields)
+            field.Accept(this);
+    }
+
+    public override void Visit(WorkflowDeclarationNode node)
+    {
+        var wfScope = new Scope($"workflow:{node.Name}", _currentScope);
+        var prev = _currentScope;
+        _currentScope = wfScope;
+        foreach (var p in node.Parameters)
+        {
+            _currentScope.TryDeclare(new Symbol(p.Name, SymbolKind.Variable, p.Span));
+        }
+        foreach (var stmt in node.Body)
+        {
+            stmt.Accept(this);
+        }
+        _currentScope = prev;
+    }
+
+    public override void Visit(GuardrailsDeclarationNode node)
+    {
+        foreach (var rule in node.Rules)
+            rule.Accept(this);
+    }
+
+    public override void Visit(OnEventDeclarationNode node)
+    {
+        var evtScope = new Scope($"on:{node.EventType}", _currentScope);
+        var prev = _currentScope;
+        _currentScope = evtScope;
+        _currentScope.TryDeclare(new Symbol(node.ParameterName, SymbolKind.Variable, node.Span));
+        foreach (var stmt in node.Body)
+            stmt.Accept(this);
+        _currentScope = prev;
+    }
+
+    public override void Visit(DecideStatementNode node)
+    {
+        node.Condition?.Accept(this);
+        if (node.Action != null)
+        {
+            foreach (var s in node.Action)
+                s.Accept(this);
+        }
+        foreach (var c in node.Cases)
+            c.Accept(this);
+        if (node.DefaultBranch != null)
+        {
+            foreach (var s in node.DefaultBranch)
+                s.Accept(this);
+        }
+    }
+
+    public override void Visit(LoopStatementNode node)
+    {
+        node.Condition?.Accept(this);
+        node.FromValue?.Accept(this);
+        node.ToValue?.Accept(this);
+        node.MaxRetries?.Accept(this);
+        if (node.LoopVariable != null)
+        {
+            _currentScope.TryDeclare(new Symbol(node.LoopVariable, SymbolKind.Variable, node.Span));
+        }
+        foreach (var s in node.Body)
+            s.Accept(this);
+    }
+
+    public override void Visit(BudgetStatementNode node)
+    {
+        node.Value.Accept(this);
+    }
+
+    public override void Visit(MemberAssignmentNode node)
+    {
+        node.Target.Accept(this);
+        node.Value.Accept(this);
+    }
+
+    public override void Visit(IndexAssignmentNode node)
+    {
+        node.Target.Accept(this);
+        node.Index.Accept(this);
+        node.Value.Accept(this);
     }
 
     private static string? FindClosestMatch(string target, IEnumerable<string> candidates)

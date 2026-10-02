@@ -8,7 +8,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.5.0";
+    public const string Version = "0.6.0";
 
     public static async Task<int> Main(string[] args)
     {
@@ -67,7 +67,7 @@ public static class Program
         Console.WriteLine("Commands:");
         Console.WriteLine("  repl                  Start interactive REPL shell");
         Console.WriteLine("  chat <file> [agent]   Interactive live terminal chat with an autonomous agent");
-        Console.WriteLine("  run <file> [flags]    Execute an AgentLang program (.agent)");
+        Console.WriteLine("  run <file> [flags]    Execute an AgentLang program (.agt / .agent)");
         Console.WriteLine("  check [target]        Fast syntax and semantic static checker");
         Console.WriteLine("  format [target] [-w]  Format AgentLang source code");
         Console.WriteLine("  test [target]         Run AgentLang test suites");
@@ -106,7 +106,7 @@ public static class Program
         Console.ResetColor();
         Console.WriteLine($"\nTo get started:");
         Console.WriteLine($"  cd {projectName}");
-        Console.WriteLine($"  agent run main.agent");
+        Console.WriteLine($"  agent run main.agt");
         return 0;
     }
 
@@ -115,7 +115,7 @@ public static class Program
         if (args.Length < 2)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("Error: Missing file path. Usage: agent run <file.agent>");
+            Console.WriteLine("Error: Missing file path. Usage: agent run <file.agt>");
             Console.ResetColor();
             return 1;
         }
@@ -173,7 +173,7 @@ public static class Program
         if (args.Length < 2)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("Error: Missing file path. Usage: agent build <file.agent>");
+            Console.WriteLine("Error: Missing file path. Usage: agent build <file.agt>");
             Console.ResetColor();
             return 1;
         }

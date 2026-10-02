@@ -72,6 +72,29 @@ public enum TokenType
     Image,
     Vision,
 
+    // Agent Scripting, Workflows & Budgeting (v0.6.0)
+    Goal,
+    Pipeline,
+    Workflow,
+    State,
+    Decide,
+    Reasoning,
+    Action,
+    Loop,
+    Budget,
+    Guardrails,
+    Strategy,
+    Persona,
+    Rules,
+    Case,
+    Default,
+    MaxRetries,
+    On,
+    Init,
+    From,
+    Break,
+    Continue,
+
     // Logical Operators
     And,
     Or,
@@ -100,7 +123,8 @@ public enum TokenType
     Asterisk,         // *
     Slash,            // /
     Percent,          // %
-    Exclamation       // !
+    Exclamation,      // !
+    Arrow             // ->
 }
 
 public sealed record Token(

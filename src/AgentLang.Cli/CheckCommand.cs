@@ -17,6 +17,7 @@ public static class CheckCommand
         }
         else if (Directory.Exists(target))
         {
+            files.AddRange(Directory.GetFiles(target, "*.agt", SearchOption.AllDirectories));
             files.AddRange(Directory.GetFiles(target, "*.agent", SearchOption.AllDirectories));
         }
         else
@@ -29,7 +30,7 @@ public static class CheckCommand
 
         if (files.Count == 0)
         {
-            Console.WriteLine($"No .agent files found in '{target}'.");
+            Console.WriteLine($"No .agt or .agent files found in '{target}'.");
             return 0;
         }
 

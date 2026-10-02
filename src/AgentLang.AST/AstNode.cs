@@ -41,6 +41,14 @@ public interface IAstVisitor
     void Visit(McpDeclarationNode node);
     void Visit(CustomApiDeclarationNode node);
     void Visit(ApiMethodDeclarationNode node);
+    void Visit(GoalDeclarationNode node);
+    void Visit(PipelineDeclarationNode node);
+    void Visit(StateDeclarationNode node);
+    void Visit(StateFieldNode node);
+    void Visit(WorkflowDeclarationNode node);
+    void Visit(GuardrailsDeclarationNode node);
+    void Visit(GuardrailRuleNode node);
+    void Visit(OnEventDeclarationNode node);
 
     void Visit(BlockStatementNode node);
     void Visit(ExpressionStatementNode node);
@@ -59,6 +67,14 @@ public interface IAstVisitor
     void Visit(WaitStatementNode node);
     void Visit(UntilStatementNode node);
     void Visit(LearnStatementNode node);
+    void Visit(DecideStatementNode node);
+    void Visit(DecideCaseNode node);
+    void Visit(LoopStatementNode node);
+    void Visit(BudgetStatementNode node);
+    void Visit(BreakStatementNode node);
+    void Visit(ContinueStatementNode node);
+    void Visit(MemberAssignmentNode node);
+    void Visit(IndexAssignmentNode node);
 
     void Visit(LiteralExpressionNode node);
     void Visit(IdentifierExpressionNode node);
@@ -103,6 +119,14 @@ public interface IAstVisitor<T>
     T Visit(McpDeclarationNode node);
     T Visit(CustomApiDeclarationNode node);
     T Visit(ApiMethodDeclarationNode node);
+    T Visit(GoalDeclarationNode node);
+    T Visit(PipelineDeclarationNode node);
+    T Visit(StateDeclarationNode node);
+    T Visit(StateFieldNode node);
+    T Visit(WorkflowDeclarationNode node);
+    T Visit(GuardrailsDeclarationNode node);
+    T Visit(GuardrailRuleNode node);
+    T Visit(OnEventDeclarationNode node);
 
     T Visit(BlockStatementNode node);
     T Visit(ExpressionStatementNode node);
@@ -121,6 +145,14 @@ public interface IAstVisitor<T>
     T Visit(WaitStatementNode node);
     T Visit(UntilStatementNode node);
     T Visit(LearnStatementNode node);
+    T Visit(DecideStatementNode node);
+    T Visit(DecideCaseNode node);
+    T Visit(LoopStatementNode node);
+    T Visit(BudgetStatementNode node);
+    T Visit(BreakStatementNode node);
+    T Visit(ContinueStatementNode node);
+    T Visit(MemberAssignmentNode node);
+    T Visit(IndexAssignmentNode node);
 
     T Visit(LiteralExpressionNode node);
     T Visit(IdentifierExpressionNode node);

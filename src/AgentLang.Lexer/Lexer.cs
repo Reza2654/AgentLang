@@ -58,6 +58,27 @@ public sealed class Lexer
         { "await", TokenType.Await },
         { "plan", TokenType.Plan },
         { "until", TokenType.Until },
+        { "goal", TokenType.Goal },
+        { "pipeline", TokenType.Pipeline },
+        { "workflow", TokenType.Workflow },
+        { "state", TokenType.State },
+        { "decide", TokenType.Decide },
+        { "reasoning", TokenType.Reasoning },
+        { "action", TokenType.Action },
+        { "loop", TokenType.Loop },
+        { "budget", TokenType.Budget },
+        { "guardrails", TokenType.Guardrails },
+        { "strategy", TokenType.Strategy },
+        { "persona", TokenType.Persona },
+        { "rules", TokenType.Rules },
+        { "case", TokenType.Case },
+        { "default", TokenType.Default },
+        { "max_retries", TokenType.MaxRetries },
+        { "on", TokenType.On },
+        { "init", TokenType.Init },
+        { "from", TokenType.From },
+        { "break", TokenType.Break },
+        { "continue", TokenType.Continue },
         { "dataset", TokenType.Dataset },
         { "train", TokenType.Train },
         { "validate", TokenType.Validate },
@@ -188,7 +209,13 @@ public sealed class Lexer
             return ReadNumberToken(startLocation);
         }
 
-        // Strings
+        // Strings (including f"..." format strings)
+        if (Current == 'f' && (Lookahead == '"' || Lookahead == '\''))
+        {
+            Advance(); // skip 'f'
+            return ReadStringToken(startLocation);
+        }
+
         if (Current == '"' || Current == '\'')
         {
             return ReadStringToken(startLocation);
@@ -218,7 +245,25 @@ public sealed class Lexer
             Advance();
         }
 
-        string text = _source.Content[startPos.._position];
+        string numText = _source.Content[startPos.._position];
+
+        // Check for duration unit suffix e.g. 45s, 100ms, 10m, 2h
+        if (char.IsLetter(Current))
+        {
+            int unitStart = _position;
+            while (char.IsLetter(Current))
+                Advance();
+            string unit = _source.Content[unitStart.._position];
+            string fullText = _source.Content[startPos.._position];
+            var dSpan = new SourceSpan(startLocation, CurrentLocation(), _source.FilePath);
+            double numVal = double.TryParse(numText, NumberStyles.Float, CultureInfo.InvariantCulture, out double nv) ? nv : 0;
+            if (unit.Equals("ms", StringComparison.OrdinalIgnoreCase)) numVal /= 1000.0;
+            else if (unit.Equals("m", StringComparison.OrdinalIgnoreCase)) numVal *= 60.0;
+            else if (unit.Equals("h", StringComparison.OrdinalIgnoreCase)) numVal *= 3600.0;
+            return new Token(TokenType.NumberLiteral, fullText, numVal, dSpan);
+        }
+
+        string text = numText;
         var span = new SourceSpan(startLocation, CurrentLocation(), _source.FilePath);
 
         if (hasDecimal)
@@ -239,11 +284,33 @@ public sealed class Lexer
     private Token ReadStringToken(SourceLocation startLocation)
     {
         char quote = Advance(); // eat opening quote
+        bool isTriple = false;
+        if (quote == '"' && Current == '"' && Lookahead == '"')
+        {
+            Advance(); // second "
+            Advance(); // third "
+            isTriple = true;
+        }
+
         var sb = new StringBuilder();
         bool closed = false;
 
         while (Current != '\0')
         {
+            if (isTriple)
+            {
+                if (Current == '"' && Lookahead == '"' && Peek(2) == '"')
+                {
+                    Advance(); // "
+                    Advance(); // "
+                    Advance(); // "
+                    closed = true;
+                    break;
+                }
+                sb.Append(Advance());
+                continue;
+            }
+
             if (Current == quote)
             {
                 Advance(); // eat closing quote
@@ -329,7 +396,13 @@ public sealed class Lexer
             case ':': return new Token(TokenType.Colon, ":", null, span);
             case ';': return new Token(TokenType.Semicolon, ";", null, span);
             case '+': return new Token(TokenType.Plus, "+", null, span);
-            case '-': return new Token(TokenType.Minus, "-", null, span);
+            case '-':
+                if (Current == '>')
+                {
+                    Advance();
+                    return new Token(TokenType.Arrow, "->", null, new SourceSpan(startLocation, CurrentLocation(), _source.FilePath));
+                }
+                return new Token(TokenType.Minus, "-", null, span);
             case '*': return new Token(TokenType.Asterisk, "*", null, span);
             case '/': return new Token(TokenType.Slash, "/", null, span);
             case '%': return new Token(TokenType.Percent, "%", null, span);

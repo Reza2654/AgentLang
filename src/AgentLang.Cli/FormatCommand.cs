@@ -16,7 +16,10 @@ public static class FormatCommand
         if (File.Exists(target))
             files.Add(target);
         else if (Directory.Exists(target))
+        {
+            files.AddRange(Directory.GetFiles(target, "*.agt", SearchOption.AllDirectories));
             files.AddRange(Directory.GetFiles(target, "*.agent", SearchOption.AllDirectories));
+        }
         else
         {
             Console.ForegroundColor = ConsoleColor.Red;
