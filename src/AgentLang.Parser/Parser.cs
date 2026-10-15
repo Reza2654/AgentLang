@@ -1906,52 +1906,51 @@ public sealed class Parser
         var tryBody = ParseStatementListUntil(TokenType.CloseBrace);
         Match(TokenType.CloseBrace);
 
-        Match(TokenType.Catch);
-        string? catchVar = null;
-        if (Check(TokenType.OpenParen))
-        {
-            Match(TokenType.OpenParen);
-            string first = ParseIdentifierName();
-            if (IsContextualIdentifier(Current.Type))
-            {
-                catchVar = ParseIdentifierName();
-            }
-            else
-            {
-                catchVar = first;
-            }
-            Match(TokenType.CloseParen);
-        }
-        else if (Check(TokenType.Identifier))
-        {
-            catchVar = NextToken().Text;
-        }
-
-        Match(TokenType.OpenBrace);
-        var catchBody = ParseStatementListUntil(TokenType.CloseBrace);
-        var closeBrace = Match(TokenType.CloseBrace);
+        var catchClauses = new List<CatchClauseNode>();
 
         while (Check(TokenType.Catch))
         {
-            NextToken();
+            var catchSpan = Current.Span;
+            Match(TokenType.Catch);
+            string? exType = null;
+            string? catchVar = null;
+
             if (Check(TokenType.OpenParen))
             {
                 Match(TokenType.OpenParen);
-                ParseIdentifierName();
-                if (IsContextualIdentifier(Current.Type)) ParseIdentifierName();
+                string first = ParseIdentifierName();
+                if (IsContextualIdentifier(Current.Type))
+                {
+                    exType = first;
+                    catchVar = ParseIdentifierName();
+                }
+                else
+                {
+                    if (first.EndsWith("Error", StringComparison.OrdinalIgnoreCase) || first.EndsWith("Exception", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exType = first;
+                    }
+                    else
+                    {
+                        catchVar = first;
+                    }
+                }
                 Match(TokenType.CloseParen);
             }
             else if (Check(TokenType.Identifier))
             {
-                NextToken();
+                catchVar = NextToken().Text;
             }
+
             Match(TokenType.OpenBrace);
-            var additionalBody = ParseStatementListUntil(TokenType.CloseBrace);
-            closeBrace = Match(TokenType.CloseBrace);
-            catchBody.AddRange(additionalBody);
+            var catchBody = ParseStatementListUntil(TokenType.CloseBrace);
+            var closeBrace = Match(TokenType.CloseBrace);
+
+            catchClauses.Add(new CatchClauseNode(exType, catchVar, catchBody, new SourceSpan(catchSpan.Start, closeBrace.Span.End, _source.FilePath)));
         }
 
-        return new TryCatchStatementNode(tryBody, catchVar, catchBody, new SourceSpan(tryToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+        var end = catchClauses.LastOrDefault()?.Span.End ?? tryToken.Span.End;
+        return new TryCatchStatementNode(tryBody, catchClauses, new SourceSpan(tryToken.Span.Start, end, _source.FilePath));
     }
 
     private RetryStatementNode ParseRetryStatement()

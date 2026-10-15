@@ -97,16 +97,47 @@ public sealed class ReturnStatementNode(ExpressionNode? value, SourceSpan span)
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
-public sealed class TryCatchStatementNode(
-    IReadOnlyList<StatementNode> tryBody,
-    string? catchVariable,
-    IReadOnlyList<StatementNode> catchBody,
+public sealed class CatchClauseNode(
+    string? exceptionType,
+    string? variableName,
+    IReadOnlyList<StatementNode> body,
     SourceSpan span)
-    : StatementNode(span)
+    : AstNode(span)
 {
-    public IReadOnlyList<StatementNode> TryBody { get; } = tryBody;
-    public string? CatchVariable { get; } = catchVariable;
-    public IReadOnlyList<StatementNode> CatchBody { get; } = catchBody;
+    public string? ExceptionType { get; } = exceptionType;
+    public string? VariableName { get; } = variableName;
+    public IReadOnlyList<StatementNode> Body { get; } = body;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class TryCatchStatementNode : StatementNode
+{
+    public IReadOnlyList<StatementNode> TryBody { get; }
+    public IReadOnlyList<CatchClauseNode> CatchClauses { get; }
+
+    public string? CatchVariable => CatchClauses.FirstOrDefault()?.VariableName;
+    public IReadOnlyList<StatementNode> CatchBody => CatchClauses.FirstOrDefault()?.Body ?? [];
+
+    public TryCatchStatementNode(
+        IReadOnlyList<StatementNode> tryBody,
+        IReadOnlyList<CatchClauseNode> catchClauses,
+        SourceSpan span)
+        : base(span)
+    {
+        TryBody = tryBody;
+        CatchClauses = catchClauses;
+    }
+
+    public TryCatchStatementNode(
+        IReadOnlyList<StatementNode> tryBody,
+        string? catchVariable,
+        IReadOnlyList<StatementNode> catchBody,
+        SourceSpan span)
+        : this(tryBody, [new CatchClauseNode(null, catchVariable, catchBody, span)], span)
+    {
+    }
 
     public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);

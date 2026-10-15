@@ -240,7 +240,13 @@ public abstract class AstVisitor : IAstVisitor
     {
         foreach (var stmt in node.TryBody)
             stmt.Accept(this);
-        foreach (var stmt in node.CatchBody)
+        foreach (var clause in node.CatchClauses)
+            clause.Accept(this);
+    }
+
+    public virtual void Visit(CatchClauseNode node)
+    {
+        foreach (var stmt in node.Body)
             stmt.Accept(this);
     }
 

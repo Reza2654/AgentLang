@@ -59,6 +59,7 @@ public interface IAstVisitor
     void Visit(ForStatementNode node);
     void Visit(ReturnStatementNode node);
     void Visit(TryCatchStatementNode node);
+    void Visit(CatchClauseNode node);
     void Visit(RetryStatementNode node);
     void Visit(ParallelBlockNode node);
     void Visit(AgentInvocationNode node);
@@ -137,6 +138,7 @@ public interface IAstVisitor<T>
     T Visit(ForStatementNode node);
     T Visit(ReturnStatementNode node);
     T Visit(TryCatchStatementNode node);
+    T Visit(CatchClauseNode node);
     T Visit(RetryStatementNode node);
     T Visit(ParallelBlockNode node);
     T Visit(AgentInvocationNode node);

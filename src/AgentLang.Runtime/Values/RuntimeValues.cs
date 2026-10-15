@@ -93,6 +93,7 @@ public sealed class AgentValue
     public Dictionary<string, TaskValue> Tasks { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, FunctionValue> Functions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, object?> Variables { get; } = new(StringComparer.Ordinal);
+    public List<GuardrailRule> GuardrailRules { get; } = [];
 
     public AgentValue(string name)
     {
@@ -160,12 +161,30 @@ public sealed class AgentExecutionResult
     public List<string> Risks { get; set; } = [];
     public bool Passed { get; set; } = true;
     public List<string> Errors { get; set; } = [];
+    public Dictionary<string, object?> Data { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public AgentExecutionResult(string output, string? summary = null, string status = "DONE")
     {
         Output = output;
         Summary = summary ?? output;
         Status = status;
+    }
+
+    public AgentExecutionResult(string output, string? summary, string status, List<string>? risks)
+        : this(output, summary, status)
+    {
+        if (risks != null) Risks = risks;
+    }
+
+    public void SetProperty(string name, object? value)
+    {
+        Data[name] = value;
+    }
+
+    public object? GetProperty(string name)
+    {
+        if (Data.TryGetValue(name, out var val)) return val;
+        return null;
     }
 
     public override string ToString() => Output;
@@ -241,4 +260,165 @@ public sealed class WorkflowValue
     }
 
     public override string ToString() => $"[Workflow: {Declaration.Name}]";
+}
+
+// --- Phase 2: Budget Control, Guardrails Engine, and HITL Runtime Values ---
+
+public sealed class BudgetExceededException : Exception
+{
+    public int TokensUsed { get; }
+    public double CostIncurred { get; }
+
+    public BudgetExceededException(string message, int tokensUsed = 0, double costIncurred = 0.0)
+        : base(message)
+    {
+        TokensUsed = tokensUsed;
+        CostIncurred = costIncurred;
+    }
+}
+
+public sealed class BudgetContext
+{
+    public int? MaxTokens { get; set; }
+    public double? MaxCost { get; set; }
+    public TimeSpan? MaxDuration { get; set; }
+
+    public int UsedTokens { get; set; }
+    public double IncurredCost { get; set; }
+    public System.Diagnostics.Stopwatch Stopwatch { get; } = System.Diagnostics.Stopwatch.StartNew();
+
+    public BudgetContext(int? maxTokens = null, double? maxCost = null, TimeSpan? maxDuration = null)
+    {
+        MaxTokens = maxTokens;
+        MaxCost = maxCost;
+        MaxDuration = maxDuration;
+    }
+
+    public void RecordUsage(int tokens, string? model) => RecordUsage(tokens, null, model);
+
+    public void RecordUsage(int tokens, double? cost = null, string? model = null)
+    {
+        UsedTokens += tokens;
+        double addedCost = cost ?? CalculateCost(tokens, model);
+        IncurredCost += addedCost;
+
+        CheckLimits();
+    }
+
+    public void CheckLimits()
+    {
+        if (MaxTokens.HasValue && UsedTokens > MaxTokens.Value)
+        {
+            throw new BudgetExceededException($"Token budget exceeded: limit is {MaxTokens.Value} tokens, but used {UsedTokens} tokens.", UsedTokens, IncurredCost);
+        }
+
+        if (MaxCost.HasValue && IncurredCost > MaxCost.Value)
+        {
+            throw new BudgetExceededException($"Cost budget exceeded: limit is ${MaxCost.Value:F4}, but incurred ${IncurredCost:F4}.", UsedTokens, IncurredCost);
+        }
+
+        if (MaxDuration.HasValue && Stopwatch.Elapsed > MaxDuration.Value)
+        {
+            throw new BudgetExceededException($"Time budget exceeded: limit is {MaxDuration.Value.TotalSeconds}s, but elapsed {Stopwatch.Elapsed.TotalSeconds:F2}s.", UsedTokens, IncurredCost);
+        }
+    }
+
+    public static double CalculateCost(int tokens, string? model)
+    {
+        if (string.IsNullOrEmpty(model)) return (tokens / 1000.0) * 0.002;
+        string m = model.ToLowerInvariant();
+        if (m.Contains("opus")) return (tokens / 1_000_000.0) * 30.0;
+        if (m.Contains("sonnet") || m.Contains("gpt-4o")) return (tokens / 1_000_000.0) * 5.0;
+        if (m.Contains("mini") || m.Contains("flash")) return (tokens / 1_000_000.0) * 0.3;
+        return (tokens / 1000.0) * 0.002;
+    }
+}
+
+public sealed class BudgetErrorValue
+{
+    public string Message { get; }
+    public int TokensUsed { get; }
+    public double CostIncurred { get; }
+
+    public BudgetErrorValue(string message, int tokensUsed = 0, double costIncurred = 0.0)
+    {
+        Message = message;
+        TokensUsed = tokensUsed;
+        CostIncurred = costIncurred;
+    }
+
+    public override string ToString() => Message;
+}
+
+public sealed class GuardrailViolationException : Exception
+{
+    public string Details { get; }
+    public string RuleName { get; }
+
+    public GuardrailViolationException(string message, string details = "", string ruleName = "GuardrailRule")
+        : base(message)
+    {
+        Details = string.IsNullOrEmpty(details) ? message : details;
+        RuleName = ruleName;
+    }
+}
+
+public sealed class GuardrailErrorValue
+{
+    public string Message { get; }
+    public string Details { get; }
+
+    public GuardrailErrorValue(string message, string details)
+    {
+        Message = message;
+        Details = details;
+    }
+
+    public override string ToString() => Details;
+}
+
+public abstract class GuardrailRule
+{
+    public abstract void Validate(string text, AgentExecutionResult result);
+}
+
+public sealed class ForbidGuardrailRule(IReadOnlyList<string> forbiddenPhrases) : GuardrailRule
+{
+    public IReadOnlyList<string> ForbiddenPhrases { get; } = forbiddenPhrases;
+
+    public override void Validate(string text, AgentExecutionResult result)
+    {
+        foreach (var phrase in ForbiddenPhrases)
+        {
+            if (string.IsNullOrWhiteSpace(phrase)) continue;
+            if (text.Contains(phrase, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GuardrailViolationException(
+                    $"Output violated guardrail: forbidden phrase '{phrase}' was detected.",
+                    details: $"Forbidden content detected: '{phrase}'");
+            }
+        }
+    }
+}
+
+public sealed class RequireFormatGuardrailRule(IReadOnlyList<string> requiredFields) : GuardrailRule
+{
+    public IReadOnlyList<string> RequiredFields { get; } = requiredFields;
+
+    public override void Validate(string text, AgentExecutionResult result)
+    {
+        foreach (var field in RequiredFields)
+        {
+            bool hasField = result.Data.ContainsKey(field) ||
+                            (field.Equals("summary", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(result.Summary)) ||
+                            (field.Equals("risks", StringComparison.OrdinalIgnoreCase) && result.Risks.Count > 0);
+
+            if (!hasField && !text.Contains(field, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GuardrailViolationException(
+                    $"Output violated require_format guardrail: missing required format field '{field}'.",
+                    details: $"Missing required field '{field}' in schema output.");
+            }
+        }
+    }
 }

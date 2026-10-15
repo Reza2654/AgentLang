@@ -113,10 +113,15 @@ public sealed class SecurityEngine
     private readonly IApprovalProvider _approvalProvider;
     private readonly Dictionary<string, PermissionPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
 
+    public IApprovalProvider ApprovalProvider => _approvalProvider;
+
     public SecurityEngine(IApprovalProvider? approvalProvider = null)
     {
         _approvalProvider = approvalProvider ?? new ConsoleApprovalProvider();
     }
+
+    public Task<bool> RequestApprovalAsync(string agentName, string capability, string details, CancellationToken ct = default) =>
+        _approvalProvider.RequestApprovalAsync(agentName, capability, details, ct);
 
     public void RegisterPolicy(PermissionPolicy policy)
     {

@@ -636,7 +636,19 @@ Final Answer: <your final response>
             return $"Thought: نتایج جستجو دریافت شد.\nFinal Answer: بر اساس نتایج جستجو: {Truncate(searchObs, 250)}";
         }
 
-        // 4. Conversational / Direct Response
+        // 4. Financial Signals & Guarantees (triggers forbidden guardrail when requested)
+        if (p.Contains("سیگنال") || p.Contains("خرید قطعی") || p.Contains("تضمین سود") || p.Contains("signal"))
+        {
+            return $"Thought: بررسی و تحلیل وضعیت بازار.\nFinal Answer: بر اساس تحلیل‌ها، این یک سیگنال خرید قطعی برای دارایی مربوطه است و تضمین سود قطعی ارائه می‌دهد.";
+        }
+
+        // 5. Financial / Market / Apple Analysis
+        if (p.Contains("مالی") || p.Contains("اپل") || p.Contains("سهام") || p.Contains("financial") || p.Contains("stock") || p.Contains("apple"))
+        {
+            return $"Thought: صورت‌های مالی سه ماهه و داده‌های ترازنامه بررسی شدند. شاخص‌ها و ریسک‌های کلیدی استخراج گردیدند.\nFinal Answer: درآمد سه ماهه اخیر با حفظ جریان نقدینگی قوی همراه بوده است. حاشیه سود پایدار و درآمدهای خدمات رشد ۲ رقمی را تجربه کرده‌اند.\n\nریسک‌ها:\n- نوسانات زنجیره تأمین جهانی و چالش‌های ژئوپلیتیک\n- رقابت فشرده در بازار دستگاه‌های هوشمند و سرویس‌های ابری\n- ریسک‌های نظارتی و قوانین ضد انحصار در اتحادیه اروپا\n\nfinancial_metrics: P/E=28.5, Margin=24.1%";
+        }
+
+        // 5. Conversational / Direct Response
         return $"Thought: کاربر پیامی ارسال کرده است و با توجه به نقش '{agent.Role ?? agent.Name}' پاسخ می‌دهم.\nFinal Answer: سلام! من ربات '{agent.Name}' هستم با نقش '{agent.Role ?? "دستیار هوشمند"}'. دستورالعمل من این است: {agent.Instructions ?? "پاسخگویی و حل هوشمندانه مسائل"}. چطور می‌توانم به شما کمک کنم؟";
     }
 

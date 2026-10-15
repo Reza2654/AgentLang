@@ -564,14 +564,23 @@ public sealed class SemanticAnalyzer : AstVisitor
         foreach (var stmt in node.TryBody)
             stmt.Accept(this);
 
-        var catchScope = new Scope("catch", prevScope);
-        if (node.CatchVariable != null)
+        _currentScope = prevScope;
+        foreach (var clause in node.CatchClauses)
+            clause.Accept(this);
+    }
+
+    public override void Visit(CatchClauseNode node)
+    {
+        var catchScope = new Scope("catch", _currentScope);
+        var prevScope = _currentScope;
+        _currentScope = catchScope;
+
+        if (node.VariableName != null)
         {
-            catchScope.TryDeclare(new Symbol(node.CatchVariable, SymbolKind.Variable, node.Span));
+            catchScope.TryDeclare(new Symbol(node.VariableName, SymbolKind.Variable, node.Span));
         }
 
-        _currentScope = catchScope;
-        foreach (var stmt in node.CatchBody)
+        foreach (var stmt in node.Body)
             stmt.Accept(this);
 
         _currentScope = prevScope;
