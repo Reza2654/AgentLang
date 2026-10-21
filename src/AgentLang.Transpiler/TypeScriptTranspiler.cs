@@ -104,6 +104,19 @@ public sealed class TypeScriptTranspiler
             case FunctionDeclarationNode fn:
                 TranspileFunction(fn, sb);
                 break;
+
+            case ImportDeclarationNode imp:
+                if (imp.Symbols.Count > 0)
+                {
+                    string mod = imp.ModulePath.Replace(".agt", "");
+                    sb.AppendLine($"import {{ {string.Join(", ", imp.Symbols)} }} from \"{mod}\";");
+                }
+                else
+                {
+                    string mod = imp.ModulePath.Replace(".agt", "");
+                    sb.AppendLine($"import \"{mod}\";");
+                }
+                break;
         }
     }
 

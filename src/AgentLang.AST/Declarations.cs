@@ -488,6 +488,19 @@ public sealed class OnEventDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class ImportDeclarationNode(
+    IReadOnlyList<string> symbols,
+    string modulePath,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public IReadOnlyList<string> Symbols { get; } = symbols;
+    public string ModulePath { get; } = modulePath;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class MainBlockNode(
     IReadOnlyList<StatementNode> statements,
     SourceSpan span)

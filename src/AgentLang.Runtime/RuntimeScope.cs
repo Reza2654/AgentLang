@@ -50,6 +50,28 @@ public sealed class RuntimeScope
 
     public bool Contains(string name) =>
         _variables.ContainsKey(name) || (Parent?.Contains(name) ?? false);
+
+    public IReadOnlyDictionary<string, object?> GetLocalVariables() =>
+        new Dictionary<string, object?>(_variables, StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, object?> GetAllVariables()
+    {
+        var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (Parent != null)
+        {
+            foreach (var kvp in Parent.GetAllVariables())
+                dict[kvp.Key] = kvp.Value;
+        }
+        foreach (var kvp in _variables)
+            dict[kvp.Key] = kvp.Value;
+        return dict;
+    }
+
+    public void SetVariables(IDictionary<string, object?> vars)
+    {
+        foreach (var kvp in vars)
+            _variables[kvp.Key] = kvp.Value;
+    }
 }
 
 public sealed class EventBus

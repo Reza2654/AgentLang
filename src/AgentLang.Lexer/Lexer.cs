@@ -45,6 +45,7 @@ public sealed class Lexer
         { "input", TokenType.Input },
         { "dependencies", TokenType.Dependencies },
         { "function", TokenType.Function },
+        { "fn", TokenType.Function },
         { "send", TokenType.Send },
         { "to", TokenType.To },
         { "description", TokenType.Description },

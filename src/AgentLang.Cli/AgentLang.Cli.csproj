@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AgentLang.Runtime\AgentLang.Runtime.csproj" />
     <ProjectReference Include="..\AgentLang.Transpiler\AgentLang.Transpiler.csproj" />
+    <ProjectReference Include="..\AgentLang.VM\AgentLang.VM.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

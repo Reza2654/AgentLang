@@ -56,6 +56,26 @@ public sealed class FunctionValue
     public override string ToString() => $"[Function: {Name}({string.Join(", ", Parameters)})]";
 }
 
+public sealed class BuiltinFunctionValue
+{
+    public string Name { get; }
+    public Func<IReadOnlyList<object?>, Task<object?>> Handler { get; }
+
+    public BuiltinFunctionValue(string name, Func<IReadOnlyList<object?>, Task<object?>> handler)
+    {
+        Name = name;
+        Handler = handler;
+    }
+
+    public BuiltinFunctionValue(string name, Func<IReadOnlyList<object?>, object?> syncHandler)
+    {
+        Name = name;
+        Handler = args => Task.FromResult(syncHandler(args));
+    }
+
+    public override string ToString() => $"[BuiltinFunction: {Name}]";
+}
+
 public sealed class TaskValue
 {
     public string Name { get; }

@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace AgentLang.Cli;
@@ -19,9 +22,46 @@ public sealed record PackageManifest(
         });
 }
 
+public sealed record LockedDependency(
+    string Version,
+    string Integrity,
+    string? Resolved = null);
+
+public sealed record PackageLock(
+    string Name,
+    string Version,
+    Dictionary<string, LockedDependency> Dependencies,
+    DateTime GeneratedAt)
+{
+    public static PackageLock FromManifest(PackageManifest manifest)
+    {
+        var locked = new Dictionary<string, LockedDependency>(StringComparer.Ordinal);
+        foreach (var (pkg, ver) in manifest.Dependencies)
+        {
+            string cleanVer = ver.TrimStart('^', '~', 'v');
+            string hashInput = $"{pkg}@{cleanVer}";
+            string integrity = "sha256-" + Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)));
+            locked[pkg] = new LockedDependency(cleanVer, integrity, $"registry.agentlang.org/{pkg}/{cleanVer}");
+        }
+
+        return new PackageLock(manifest.Name, manifest.Version, locked, DateTime.UtcNow);
+    }
+}
+
 public static class ProjectManager
 {
-    private const string ManifestFileName = "project.json";
+    public const string AgentManifestFileName = "agent.json";
+    public const string LegacyManifestFileName = "project.json";
+    public const string LockFileName = "agent.lock";
+
+    public static string GetManifestFilePath(string directory)
+    {
+        string agentJson = Path.Combine(directory, AgentManifestFileName);
+        if (File.Exists(agentJson)) return agentJson;
+        string projectJson = Path.Combine(directory, LegacyManifestFileName);
+        if (File.Exists(projectJson)) return projectJson;
+        return agentJson;
+    }
 
     public static void ScaffoldProject(string projectName, string targetDirectory)
     {
@@ -31,10 +71,14 @@ public static class ProjectManager
         Directory.CreateDirectory(Path.Combine(projectPath, "permissions"));
         Directory.CreateDirectory(Path.Combine(projectPath, "tools"));
 
-        // 1. project.json manifest
+        // 1. agent.json manifest & agent.lock
         var manifest = PackageManifest.Default(projectName);
         string manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(Path.Combine(projectPath, ManifestFileName), manifestJson);
+        File.WriteAllText(Path.Combine(projectPath, AgentManifestFileName), manifestJson);
+
+        var lockfile = PackageLock.FromManifest(manifest);
+        string lockJson = JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(Path.Combine(projectPath, LockFileName), lockJson);
 
         // 2. permissions/default.permission
         string defaultPermission = """
@@ -71,6 +115,7 @@ public static class ProjectManager
         string mainAgent = """
             permission DefaultPermission {
                 allow browser.search
+                allow browser.fetch
                 ask filesystem.write
                 cannot terminal
             }
@@ -103,11 +148,16 @@ public static class ProjectManager
         string readme = $"""
             # {projectName}
 
-            Created with AgentLang v0.6.2.
+            Created with AgentLang v0.6.3.
 
             ## Run
             ```bash
             agent run main.agt
+            ```
+
+            ## Bundle package
+            ```bash
+            agent pack
             ```
             """;
         File.WriteAllText(Path.Combine(projectPath, "README.md"), readme);
@@ -115,7 +165,7 @@ public static class ProjectManager
 
     public static PackageManifest LoadManifest(string directory)
     {
-        string path = Path.Combine(directory, ManifestFileName);
+        string path = GetManifestFilePath(directory);
         if (!File.Exists(path))
             return PackageManifest.Default(Path.GetFileName(directory));
 
@@ -125,8 +175,72 @@ public static class ProjectManager
 
     public static void SaveManifest(string directory, PackageManifest manifest)
     {
-        string path = Path.Combine(directory, ManifestFileName);
+        string path = Path.Combine(directory, AgentManifestFileName);
         string json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(path, json);
+
+        // Also update lockfile
+        var lockfile = PackageLock.FromManifest(manifest);
+        string lockJson = JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(Path.Combine(directory, LockFileName), lockJson);
+    }
+
+    public static string PackProject(string projectPath, string? outputPath = null)
+    {
+        string fullProjectPath = Path.GetFullPath(projectPath);
+        if (!Directory.Exists(fullProjectPath))
+        {
+            throw new DirectoryNotFoundException($"Project directory not found: {fullProjectPath}");
+        }
+
+        var manifest = LoadManifest(fullProjectPath);
+        string lockPath = Path.Combine(fullProjectPath, LockFileName);
+        if (!File.Exists(lockPath))
+        {
+            var lockfile = PackageLock.FromManifest(manifest);
+            File.WriteAllText(lockPath, JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        string targetZip;
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            targetZip = Path.GetFullPath(outputPath);
+            if (!targetZip.EndsWith(".agtpkg", StringComparison.OrdinalIgnoreCase))
+                targetZip += ".agtpkg";
+        }
+        else
+        {
+            targetZip = Path.Combine(fullProjectPath, $"{manifest.Name}-{manifest.Version}.agtpkg");
+        }
+
+        if (File.Exists(targetZip))
+            File.Delete(targetZip);
+
+        using (var zip = ZipFile.Open(targetZip, ZipArchiveMode.Create))
+        {
+            var allFiles = Directory.GetFiles(fullProjectPath, "*", SearchOption.AllDirectories);
+            foreach (var file in allFiles)
+            {
+                string rel = Path.GetRelativePath(fullProjectPath, file).Replace('\\', '/');
+                if (rel.StartsWith(".git/") || rel.StartsWith("bin/") || rel.StartsWith("obj/") ||
+                    rel.StartsWith(".vs/") || rel.EndsWith(".agtpkg", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                zip.CreateEntryFromFile(file, rel, CompressionLevel.Optimal);
+            }
+        }
+
+        return targetZip;
+    }
+
+    public static void UnpackPackage(string packageFile, string targetDir)
+    {
+        if (!File.Exists(packageFile))
+            throw new FileNotFoundException($"Package not found: {packageFile}");
+
+        Directory.CreateDirectory(targetDir);
+        ZipFile.ExtractToDirectory(packageFile, targetDir, overwriteFiles: true);
     }
 }

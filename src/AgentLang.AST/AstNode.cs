@@ -49,6 +49,7 @@ public interface IAstVisitor
     void Visit(GuardrailsDeclarationNode node);
     void Visit(GuardrailRuleNode node);
     void Visit(OnEventDeclarationNode node);
+    void Visit(ImportDeclarationNode node);
 
     void Visit(BlockStatementNode node);
     void Visit(ExpressionStatementNode node);
@@ -128,6 +129,7 @@ public interface IAstVisitor<T>
     T Visit(GuardrailsDeclarationNode node);
     T Visit(GuardrailRuleNode node);
     T Visit(OnEventDeclarationNode node);
+    T Visit(ImportDeclarationNode node);
 
     T Visit(BlockStatementNode node);
     T Visit(ExpressionStatementNode node);

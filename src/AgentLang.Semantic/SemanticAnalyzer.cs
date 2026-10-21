@@ -660,6 +660,14 @@ public sealed class SemanticAnalyzer : AstVisitor
         _currentScope = prev;
     }
 
+    public override void Visit(ImportDeclarationNode node)
+    {
+        foreach (var sym in node.Symbols)
+        {
+            _currentScope.TryDeclare(new Symbol(sym, SymbolKind.Variable, node.Span));
+        }
+    }
+
     public override void Visit(DecideStatementNode node)
     {
         node.Condition?.Accept(this);

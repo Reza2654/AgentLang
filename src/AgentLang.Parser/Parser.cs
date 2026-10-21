@@ -202,20 +202,17 @@ public sealed class Parser
             {
                 declarations.Add(ParseGuardrailsDeclaration());
             }
-            else if (Check(TokenType.Identifier) && Current.Text.Equals("import", StringComparison.OrdinalIgnoreCase) && (Lookahead.Type == TokenType.Tools || Lookahead.Text.Equals("tools", StringComparison.OrdinalIgnoreCase)))
+            else if (Check(TokenType.Identifier) && Current.Text.Equals("import", StringComparison.OrdinalIgnoreCase))
             {
-                var importSpan = Current.Span;
-                NextToken(); // import
-                NextToken(); // tools
-                Match(TokenType.OpenBrace);
-                while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+                var imp = ParseImportDeclaration();
+                declarations.Add(imp);
+                if (imp is ImportDeclarationNode idn && idn.ModulePath.Equals("tools", StringComparison.OrdinalIgnoreCase))
                 {
-                    var id = ParseIdentifierName();
-                    declarations.Add(new ToolDeclarationNode(id, Array.Empty<AstNode>(), importSpan));
-                    if (!MatchOptional(TokenType.Comma, out _)) break;
+                    foreach (var sym in idn.Symbols)
+                    {
+                        declarations.Add(new ToolDeclarationNode(sym, Array.Empty<AstNode>(), idn.Span));
+                    }
                 }
-                Match(TokenType.CloseBrace);
-                MatchOptional(TokenType.Semicolon, out _);
             }
             else
             {
@@ -649,6 +646,75 @@ public sealed class Parser
         }
         var closeBrace = Match(TokenType.CloseBrace);
         return new ToolDeclarationNode("dependencies", members, new SourceSpan(depToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private DeclarationNode ParseImportDeclaration()
+    {
+        var importSpan = Current.Span;
+        Match(TokenType.Identifier); // 'import'
+
+        // Case 1: import tools { ... }
+        if (Check(TokenType.Tools) || (Check(TokenType.Identifier) && Current.Text.Equals("tools", StringComparison.OrdinalIgnoreCase)))
+        {
+            NextToken(); // tools
+            Match(TokenType.OpenBrace);
+            var toolList = new List<string>();
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                var id = ParseIdentifierName();
+                toolList.Add(id);
+                if (!MatchOptional(TokenType.Comma, out _)) break;
+            }
+            var closeBraceTools = Match(TokenType.CloseBrace);
+            MatchOptional(TokenType.Semicolon, out _);
+            return new ImportDeclarationNode(toolList, "tools", new SourceSpan(importSpan.Start, closeBraceTools.Span.End, _source.FilePath));
+        }
+
+        // Case 2: import { sym1, sym2 } from "./path.agt"
+        if (Check(TokenType.OpenBrace))
+        {
+            Match(TokenType.OpenBrace);
+            var symbols = new List<string>();
+            while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+            {
+                symbols.Add(ParseIdentifierName());
+                if (!MatchOptional(TokenType.Comma, out _)) break;
+            }
+            Match(TokenType.CloseBrace);
+
+            // match 'from'
+            if (Check(TokenType.From) || (Check(TokenType.Identifier) && Current.Text.Equals("from", StringComparison.OrdinalIgnoreCase)))
+            {
+                NextToken();
+            }
+
+            string path = "";
+            if (Check(TokenType.StringLiteral))
+            {
+                path = NextToken().Text;
+            }
+            else
+            {
+                path = ParseIdentifierName();
+            }
+            var endSpan = Current.Span;
+            MatchOptional(TokenType.Semicolon, out _);
+            return new ImportDeclarationNode(symbols, path, new SourceSpan(importSpan.Start, endSpan.End, _source.FilePath));
+        }
+
+        // Case 3: import "./path.agt" or import "@stdlib/crypto" or import module_name
+        string modulePath = "";
+        if (Check(TokenType.StringLiteral))
+        {
+            modulePath = NextToken().Text;
+        }
+        else
+        {
+            modulePath = ParseIdentifierName();
+        }
+        var spanEnd = Current.Span;
+        MatchOptional(TokenType.Semicolon, out _);
+        return new ImportDeclarationNode(Array.Empty<string>(), modulePath, new SourceSpan(importSpan.Start, spanEnd.End, _source.FilePath));
     }
 
     private ImportApiDeclarationNode ParseImportApiDeclaration()
@@ -1773,6 +1839,8 @@ public sealed class Parser
             return ParseMcpDeclaration();
         if (Check(TokenType.Api))
             return ParseCustomApiDeclaration();
+        if (Check(TokenType.Identifier) && Current.Text.Equals("import", StringComparison.OrdinalIgnoreCase))
+            return ParseImportDeclaration();
 
         // Agent / Swarm / MultiAgent invocation: "agent Researcher", "swarm ResearchSwarm"
         if ((Check(TokenType.Agent) || Check(TokenType.Swarm) || Check(TokenType.MultiAgent)) && IsContextualIdentifier(Lookahead.Type))

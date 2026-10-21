@@ -5,6 +5,7 @@ using AgentLang.Models;
 using AgentLang.Runtime.Agents;
 using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
+using AgentLang.Runtime.Stdlib;
 using AgentLang.Security;
 using AgentLang.Tools;
 using AgentLang.Tools.MCP;
@@ -49,6 +50,13 @@ public sealed class AgentLangRuntime
 
     private readonly Dictionary<string, AgentValue> _agentInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly RuntimeScope _globalScope = new("global");
+    private readonly HashSet<string> _activeImports = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RuntimeScope> _loadedModules = new(StringComparer.OrdinalIgnoreCase);
+
+    public Action<StatementNode, RuntimeScope>? StepHook { get; set; }
+    public Func<string, bool>? CapabilityCheck { get; set; }
+    public long InstructionStepCount { get; private set; }
+    public string? CurrentSourceFile { get; set; }
     private int _callDepth = 0;
     private const int MaxCallDepth = 256;
     private readonly Stack<BudgetContext> _budgetStack = new();
@@ -256,6 +264,10 @@ public sealed class AgentLangRuntime
 
                 case GuardrailsDeclarationNode guardDecl:
                     _guardrailsDefs["default"] = guardDecl;
+                    break;
+
+                case ImportDeclarationNode imp:
+                    await ExecuteImportDeclarationAsync(imp, _globalScope, ct);
                     break;
             }
         }
@@ -778,8 +790,15 @@ public sealed class AgentLangRuntime
 
     public async Task ExecuteStatementAsync(StatementNode stmt, RuntimeScope scope, CancellationToken ct = default)
     {
+        InstructionStepCount++;
+        StepHook?.Invoke(stmt, scope);
+
         switch (stmt)
         {
+            case ImportDeclarationNode imp:
+                await ExecuteImportDeclarationAsync(imp, scope, ct);
+                break;
+
             case VariableAssignmentNode assign:
                 var val = await EvaluateExpressionAsync(assign.Value, scope, ct);
                 scope.Assign(assign.VariableName, val);
@@ -1913,6 +1932,8 @@ public sealed class AgentLangRuntime
                 searchArgs["provider"] = searchProvider;
 
             // Execute research: authorize and perform browser search if needed
+            CheckCapability("browser.search");
+
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
                 CurrentAgent?.PermissionPolicy,
@@ -2396,6 +2417,8 @@ public sealed class AgentLangRuntime
                 argsDict["prompt"] = argsDict["arg1"];
             }
 
+            CheckCapability(capability);
+
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
                 CurrentAgent?.PermissionPolicy,
@@ -2867,8 +2890,19 @@ public sealed class AgentLangRuntime
             return await InvokeFunctionAsync(fn, call.Arguments, scope, ct);
         }
 
+        if (calleeObj is BuiltinFunctionValue builtinFn)
+        {
+            var evaluatedArgs = new List<object?>();
+            foreach (var arg in call.Arguments)
+            {
+                evaluatedArgs.Add(await EvaluateExpressionAsync(arg, scope, ct));
+            }
+            return await builtinFn.Handler(evaluatedArgs);
+        }
+
         if (calleeObj is CustomAgentLangTool customTool)
         {
+            CheckCapability(customTool.Name);
             var argsDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < customTool.Inputs.Count; i++)
             {
@@ -2885,6 +2919,8 @@ public sealed class AgentLangRuntime
                 }
                 argsDict[inputParam.Name] = argVal;
             }
+
+            CheckCapability(customTool.Name);
 
             var toolRes = await _toolRegistry.InvokeAsync(
                 CurrentAgent?.Name ?? "agent",
@@ -3680,5 +3716,192 @@ public sealed class AgentLangRuntime
         }
 
         return risks;
+    }
+
+    public void CheckCapability(string capability)
+    {
+        if (CapabilityCheck != null)
+        {
+            bool allowed = CapabilityCheck(capability);
+            if (!allowed)
+            {
+                throw new AgentLangPermissionException($"Execution blocked by VM sandbox capability gating: '{capability}'", errorCode: "VM102");
+            }
+        }
+    }
+
+    private async Task ExecuteImportDeclarationAsync(ImportDeclarationNode imp, RuntimeScope scope, CancellationToken ct)
+    {
+        if (imp.ModulePath.Equals("tools", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (StandardLibrary.IsStdlibModule(imp.ModulePath))
+        {
+            var funcs = StandardLibrary.GetModuleFunctions(imp.ModulePath);
+            if (imp.Symbols.Count > 0)
+            {
+                foreach (var sym in imp.Symbols)
+                {
+                    if (funcs.TryGetValue(sym, out var fn))
+                    {
+                        scope.SetLocal(sym, fn);
+                        _globalScope.SetLocal(sym, fn);
+                    }
+                    else
+                    {
+                        throw new AgentLangRuntimeException($"Symbol '{sym}' not found in standard library '{imp.ModulePath}'", errorCode: "MOD404");
+                    }
+                }
+            }
+            else
+            {
+                foreach (var (name, fn) in funcs)
+                {
+                    scope.SetLocal(name, fn);
+                    _globalScope.SetLocal(name, fn);
+                }
+            }
+            return;
+        }
+
+        // Local file modular import
+        string rawPath = imp.ModulePath;
+        string baseDir = !string.IsNullOrEmpty(CurrentSourceFile)
+            ? Path.GetDirectoryName(Path.GetFullPath(CurrentSourceFile)) ?? Directory.GetCurrentDirectory()
+            : Directory.GetCurrentDirectory();
+
+        string resolvedPath = Path.Combine(baseDir, rawPath);
+        if (!File.Exists(resolvedPath))
+        {
+            if (File.Exists(resolvedPath + ".agt"))
+                resolvedPath += ".agt";
+            else if (File.Exists(resolvedPath + ".agent"))
+                resolvedPath += ".agent";
+            else
+                throw new AgentLangRuntimeException($"Module file not found: '{rawPath}' (searched at '{resolvedPath}')", errorCode: "MOD404");
+        }
+
+        string fullPath = Path.GetFullPath(resolvedPath);
+
+        if (_activeImports.Contains(fullPath))
+        {
+            throw new AgentLangRuntimeException($"Circular import detected: '{rawPath}' ({fullPath}) is already in the import chain.", errorCode: "MOD002");
+        }
+
+        if (_loadedModules.TryGetValue(fullPath, out var cachedScope))
+        {
+            ImportFromModuleScope(cachedScope, imp.Symbols, scope);
+            return;
+        }
+
+        _activeImports.Add(fullPath);
+        try
+        {
+            string source = await File.ReadAllTextAsync(fullPath, ct);
+            var sourceText = new SourceText(source, fullPath);
+            var lexer = new Lexer.Lexer(sourceText);
+            var tokens = lexer.TokenizeAll();
+            var parser = new Parser.Parser(tokens, sourceText, new DiagnosticBag());
+            var moduleProg = parser.ParseProgram();
+
+            var prevFile = CurrentSourceFile;
+            CurrentSourceFile = fullPath;
+            var moduleScope = new RuntimeScope($"module:{Path.GetFileName(fullPath)}", _globalScope);
+
+            try
+            {
+                // Catalog declarations from module
+                foreach (var decl in moduleProg.Declarations)
+                {
+                    switch (decl)
+                    {
+                        case FunctionDeclarationNode f:
+                            var fnVal = new FunctionValue(f.Name, f.Parameters, f.Body, moduleScope);
+                            moduleScope.SetLocal(f.Name, fnVal);
+                            _globalScope.SetLocal(f.Name, fnVal);
+                            break;
+
+                        case AgentDeclarationNode ag:
+                            _agentDefs[ag.Name] = ag;
+                            moduleScope.SetLocal(ag.Name, ag);
+                            break;
+
+                        case SwarmDeclarationNode sw:
+                            _swarmDefs[sw.Name] = sw;
+                            moduleScope.SetLocal(sw.Name, sw);
+                            break;
+
+                        case CustomToolDeclarationNode ctNode:
+                            _customToolDefs[ctNode.Name] = ctNode;
+                            moduleScope.SetLocal(ctNode.Name, ctNode);
+                            break;
+
+                        case ImportDeclarationNode subImp:
+                            await ExecuteImportDeclarationAsync(subImp, moduleScope, ct);
+                            break;
+                    }
+                }
+
+                // Execute module body if present
+                if (moduleProg.Main != null)
+                {
+                    try
+                    {
+                        foreach (var stmt in moduleProg.Main.Statements)
+                        {
+                            await ExecuteStatementAsync(stmt, moduleScope, ct);
+                        }
+                    }
+                    catch (ReturnException)
+                    {
+                        // Module top-level return is allowed
+                    }
+                }
+
+                _loadedModules[fullPath] = moduleScope;
+                ImportFromModuleScope(moduleScope, imp.Symbols, scope);
+            }
+            finally
+            {
+                CurrentSourceFile = prevFile;
+            }
+        }
+        finally
+        {
+            _activeImports.Remove(fullPath);
+        }
+    }
+
+    private void ImportFromModuleScope(RuntimeScope moduleScope, IReadOnlyList<string> symbols, RuntimeScope targetScope)
+    {
+        if (symbols.Count > 0)
+        {
+            foreach (var sym in symbols)
+            {
+                if (moduleScope.TryGet(sym, out var val))
+                {
+                    targetScope.SetLocal(sym, val);
+                    _globalScope.SetLocal(sym, val);
+                }
+                else if (_agentDefs.ContainsKey(sym))
+                {
+                    // Agent definition is already registered in runtime
+                }
+                else
+                {
+                    throw new AgentLangRuntimeException($"Symbol '{sym}' not found in imported module", errorCode: "MOD404");
+                }
+            }
+        }
+        else
+        {
+            foreach (var (k, v) in moduleScope.GetLocalVariables())
+            {
+                targetScope.SetLocal(k, v);
+                _globalScope.SetLocal(k, v);
+            }
+        }
     }
 }

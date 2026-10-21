@@ -94,6 +94,19 @@ public sealed class PythonTranspiler
             case FunctionDeclarationNode fn:
                 TranspileFunction(fn, sb);
                 break;
+
+            case ImportDeclarationNode imp:
+                if (imp.Symbols.Count > 0)
+                {
+                    string mod = imp.ModulePath.Replace(".agt", "").Replace("./", "").Replace("/", ".");
+                    sb.AppendLine($"from {mod} import {string.Join(", ", imp.Symbols)}");
+                }
+                else
+                {
+                    string mod = imp.ModulePath.Replace(".agt", "").Replace("./", "").Replace("/", ".");
+                    sb.AppendLine($"import {mod}");
+                }
+                break;
         }
     }
 

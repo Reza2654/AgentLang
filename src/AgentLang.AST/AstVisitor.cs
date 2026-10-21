@@ -191,6 +191,8 @@ public abstract class AstVisitor : IAstVisitor
             stmt.Accept(this);
     }
 
+    public virtual void Visit(ImportDeclarationNode node) { }
+
     public virtual void Visit(BlockStatementNode node)
     {
         foreach (var stmt in node.Statements)

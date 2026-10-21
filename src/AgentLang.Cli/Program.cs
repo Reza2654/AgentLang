@@ -9,7 +9,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.2";
+    public const string Version = "0.6.3";
 
     public static async Task<int> Main(string[] args)
     {
@@ -46,6 +46,7 @@ public static class Program
                 "remove" => HandleRemove(args),
                 "update" => HandleUpdate(args),
                 "list" => HandleList(args),
+                "pack" => HandlePack(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -81,6 +82,7 @@ public static class Program
         Console.WriteLine("  remove <pkg>          Remove a package dependency");
         Console.WriteLine("  update <pkg>          Update a package dependency");
         Console.WriteLine("  list                  List project dependencies");
+        Console.WriteLine("  pack [dir] [-o <file>] Bundle an Agent project into a distributable .agtpkg archive");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
@@ -418,6 +420,45 @@ public static class Program
             Console.WriteLine($"  - {k}: {v}");
         }
         return 0;
+    }
+
+    private static int HandlePack(string[] args)
+    {
+        string projectDir = Directory.GetCurrentDirectory();
+        string? output = null;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            if ((args[i] is "--out" or "-o") && i + 1 < args.Length)
+            {
+                output = args[++i];
+            }
+            else if (!args[i].StartsWith('-'))
+            {
+                projectDir = args[i];
+            }
+        }
+
+        try
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"Packaging AgentLang project at: {projectDir}...");
+            Console.ResetColor();
+
+            string packagePath = ProjectManager.PackProject(projectDir, output);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Successfully bundled agent package: {packagePath}");
+            Console.ResetColor();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error packaging project: {ex.Message}");
+            Console.ResetColor();
+            return 1;
+        }
     }
 
     private static int HandleUnknown(string cmd)
