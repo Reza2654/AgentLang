@@ -3,12 +3,13 @@ using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Semantic;
 using AgentLang.Security;
+using AgentLang.Transpiler;
 
 namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.1";
+    public const string Version = "0.6.2";
 
     public static async Task<int> Main(string[] args)
     {
@@ -40,6 +41,7 @@ public static class Program
                 "new" => HandleNew(args),
                 "run" => await HandleRunAsync(args),
                 "build" => HandleBuild(args),
+                "transpile" => HandleTranspile(args),
                 "install" => HandleInstall(args),
                 "remove" => HandleRemove(args),
                 "update" => HandleUpdate(args),
@@ -71,7 +73,8 @@ public static class Program
         Console.WriteLine("  check [target]        Fast syntax and semantic static checker");
         Console.WriteLine("  format [target] [-w]  Format AgentLang source code");
         Console.WriteLine("  test [target]         Run AgentLang test suites");
-        Console.WriteLine("  build <file>          Parse and semantically validate an AgentLang program");
+        Console.WriteLine("  build <file> [flags]  Parse, validate, and optionally compile/transpile an AgentLang program");
+        Console.WriteLine("  transpile <file>      Transpile AgentLang (.agt) to Python or TypeScript");
         Console.WriteLine("  new <name>            Scaffold a new AgentLang project");
         Console.WriteLine("  doctor                Diagnose environment, runtime, models, tools, and security");
         Console.WriteLine("  install <pkg> [ver]   Install a package dependency");
@@ -173,7 +176,7 @@ public static class Program
         if (args.Length < 2)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("Error: Missing file path. Usage: agent build <file.agt>");
+            Console.WriteLine("Error: Missing file path. Usage: agent build <file.agt> [--target python|ts] [-o <output>]");
             Console.ResetColor();
             return 1;
         }
@@ -200,18 +203,123 @@ public static class Program
         PrintDiagnostics(sourceText, parser.Diagnostics);
         PrintDiagnostics(sourceText, semantic.Diagnostics);
 
-        if (!errors)
+        if (errors)
         {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"✓ Build succeeded: '{filePath}' passed syntax and semantic verification.");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"✗ Build failed: verification encountered errors.");
             Console.ResetColor();
-            return 0;
+            return 1;
         }
 
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"✗ Build failed: verification encountered errors.");
+        // Check if target is specified for code generation
+        string? targetLang = null;
+        string? outputFile = null;
+        for (int i = 2; i < args.Length; i++)
+        {
+            if ((args[i] == "--target" || args[i] == "-t") && i + 1 < args.Length)
+            {
+                targetLang = args[++i].ToLowerInvariant();
+            }
+            else if ((args[i] == "-o" || args[i] == "--output") && i + 1 < args.Length)
+            {
+                outputFile = args[++i];
+            }
+        }
+
+        if (!string.IsNullOrEmpty(targetLang))
+        {
+            return DoTranspile(program, filePath, targetLang, outputFile);
+        }
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"✓ Build succeeded: '{filePath}' passed syntax and semantic verification.");
         Console.ResetColor();
-        return 1;
+        return 0;
+    }
+
+    private static int HandleTranspile(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing file path. Usage: agent transpile <file.agt> [--target python|ts] [-o <output>]");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string filePath = args[1];
+        if (!File.Exists(filePath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error: File not found: '{filePath}'");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string source = File.ReadAllText(filePath);
+        var sourceText = new SourceText(source, filePath);
+
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        var semantic = new SemanticAnalyzer();
+        semantic.Analyze(program);
+
+        bool errors = parser.Diagnostics.HasErrors || semantic.Diagnostics.HasErrors;
+        PrintDiagnostics(sourceText, parser.Diagnostics);
+        PrintDiagnostics(sourceText, semantic.Diagnostics);
+
+        if (errors)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"✗ Transpilation failed due to syntax or semantic errors.");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string targetLang = "python";
+        string? outputFile = null;
+
+        for (int i = 2; i < args.Length; i++)
+        {
+            if ((args[i] == "--target" || args[i] == "-t") && i + 1 < args.Length)
+            {
+                targetLang = args[++i].ToLowerInvariant();
+            }
+            else if ((args[i] == "-o" || args[i] == "--output") && i + 1 < args.Length)
+            {
+                outputFile = args[++i];
+            }
+        }
+
+        return DoTranspile(program, filePath, targetLang, outputFile);
+    }
+
+    private static int DoTranspile(ProgramNode program, string sourceFile, string targetLang, string? outputFile)
+    {
+        bool isTs = targetLang is "ts" or "typescript";
+        string code = isTs
+            ? TranspilerEngine.TranspileToTypeScript(program)
+            : TranspilerEngine.TranspileToPython(program);
+
+        if (!string.IsNullOrEmpty(outputFile))
+        {
+            File.WriteAllText(outputFile, code);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Transpiled to {outputFile} ({(isTs ? "TypeScript" : "Python")})");
+            Console.ResetColor();
+        }
+        else
+        {
+            string ext = isTs ? ".ts" : ".py";
+            string defaultOut = Path.ChangeExtension(sourceFile, ext);
+            File.WriteAllText(defaultOut, code);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Transpiled to {defaultOut} ({(isTs ? "TypeScript" : "Python")})");
+            Console.ResetColor();
+        }
+
+        return 0;
     }
 
     private static int HandleInstall(string[] args)

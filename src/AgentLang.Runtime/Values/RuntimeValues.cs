@@ -1,4 +1,5 @@
 using AgentLang.AST;
+using AgentLang.Runtime.Memory;
 
 namespace AgentLang.Runtime.Values;
 
@@ -94,6 +95,8 @@ public sealed class AgentValue
     public Dictionary<string, FunctionValue> Functions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, object?> Variables { get; } = new(StringComparer.Ordinal);
     public List<GuardrailRule> GuardrailRules { get; } = [];
+    public IAgentMemory? AgentMemoryStore { get; set; }
+    public Dictionary<string, OnEventDeclarationNode> EventHandlers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public AgentValue(string name)
     {
@@ -421,4 +424,55 @@ public sealed class RequireFormatGuardrailRule(IReadOnlyList<string> requiredFie
             }
         }
     }
+}
+
+// --- Phase 3: Memory Values ---
+
+public sealed class VectorStoreMemoryValue
+{
+    public VectorStoreMemory Store { get; }
+    public VectorStoreMemory Memory => Store;
+    public string Collection => Store.Collection;
+    public int TopK => Store.TopK;
+    public string SimilarityMetric => Store.SimilarityMetric;
+
+    public VectorStoreMemoryValue(VectorStoreMemory store)
+    {
+        Store = store;
+    }
+
+    public IReadOnlyList<string> Retrieve(string query, int? topK = null) => Store.Retrieve(query, topK);
+    public void Add(string text) => Store.Store(text);
+    public void StoreDocument(string text) => Store.Store(text);
+    public void Clear() => Store.Clear();
+    public override string ToString() => $"[VectorStoreMemory: {Collection}]";
+}
+
+public sealed class ConversationBufferValue
+{
+    public ConversationBufferMemory Buffer { get; }
+    public ConversationBufferMemory Memory => Buffer;
+    public int Window => Buffer.Window;
+
+    public ConversationBufferValue(ConversationBufferMemory buffer)
+    {
+        Buffer = buffer;
+    }
+
+    public override string ToString() => $"[ConversationBuffer(window: {Window})]";
+}
+
+public sealed class EphemeralMemoryValue
+{
+    public EphemeralMemory Memory { get; }
+
+    public EphemeralMemoryValue(EphemeralMemory memory)
+    {
+        Memory = memory;
+    }
+
+    public IReadOnlyList<string> Retrieve(string query, int? topK = null) => Memory.Retrieve(query, topK);
+    public void Add(string text) => Memory.Store(text);
+    public void Clear() => Memory.Clear();
+    public override string ToString() => "[EphemeralMemory]";
 }

@@ -2025,10 +2025,28 @@ public sealed class Parser
     {
         var left = ParseAdditive();
         while (Check(TokenType.LessThan) || Check(TokenType.LessThanEquals) ||
-               Check(TokenType.GreaterThan) || Check(TokenType.GreaterThanEquals))
+               Check(TokenType.GreaterThan) || Check(TokenType.GreaterThanEquals) ||
+               (Check(TokenType.Identifier) && (Current.Text.Equals("contains", StringComparison.OrdinalIgnoreCase) || Current.Text.StartsWith("contains_", StringComparison.OrdinalIgnoreCase) || Current.Text.Equals("in", StringComparison.OrdinalIgnoreCase))) ||
+               Check(TokenType.In))
         {
-            var opToken = NextToken();
-            var op = opToken.Type switch
+            if (Check(TokenType.Identifier) || Check(TokenType.In))
+            {
+                var opToken = NextToken();
+                string opName = opToken.Text;
+                if (!Check(TokenType.CloseParen) && !Check(TokenType.CloseBracket) && !Check(TokenType.CloseBrace) && !Check(TokenType.Comma) && !Check(TokenType.Semicolon))
+                {
+                    var right = ParseAdditive();
+                    left = new CallExpressionNode(new IdentifierExpressionNode(opName, opToken.Span), [left, right], new SourceSpan(left.Span.Start, right.Span.End, _source.FilePath));
+                }
+                else
+                {
+                    left = new CallExpressionNode(new IdentifierExpressionNode(opName, opToken.Span), [left], new SourceSpan(left.Span.Start, opToken.Span.End, _source.FilePath));
+                }
+                continue;
+            }
+
+            var opToken2 = NextToken();
+            var op = opToken2.Type switch
             {
                 TokenType.LessThan => BinaryOperator.LessThan,
                 TokenType.LessThanEquals => BinaryOperator.LessThanOrEqual,
@@ -2036,8 +2054,8 @@ public sealed class Parser
                 TokenType.GreaterThanEquals => BinaryOperator.GreaterThanOrEqual,
                 _ => throw new InvalidOperationException()
             };
-            var right = ParseAdditive();
-            left = new BinaryExpressionNode(left, op, right, new SourceSpan(left.Span.Start, right.Span.End, _source.FilePath));
+            var right2 = ParseAdditive();
+            left = new BinaryExpressionNode(left, op, right2, new SourceSpan(left.Span.Start, right2.Span.End, _source.FilePath));
         }
         return left;
     }

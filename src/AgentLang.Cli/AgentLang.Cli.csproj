@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\AgentLang.Runtime\AgentLang.Runtime.csproj" />
+    <ProjectReference Include="..\AgentLang.Transpiler\AgentLang.Transpiler.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

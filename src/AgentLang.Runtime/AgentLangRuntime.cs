@@ -387,26 +387,53 @@ public sealed class AgentLangRuntime
                 }
                 else if (cfg.Key.Equals("memory", StringComparison.OrdinalIgnoreCase))
                 {
-                    string mStr = val?.ToString()?.ToLowerInvariant() ?? "";
-                    if (mStr is "false" or "none" or "disabled")
+                    if (val is VectorStoreMemoryValue vsmVal)
                     {
-                        agentInstance.MemoryEnabled = false;
-                        agentInstance.MemoryMode = "none";
-                    }
-                    else if (mStr is "short_term" or "shortterm" or "ram" or "session")
-                    {
+                        agentInstance.AgentMemoryStore = vsmVal.Memory;
                         agentInstance.MemoryEnabled = true;
-                        agentInstance.MemoryMode = "short_term";
+                        agentInstance.MemoryMode = "vector_store";
                     }
-                    else if (mStr is "long_term" or "longterm" or "persistent" or "disk" || val is true)
+                    else if (val is ConversationBufferValue cbmVal)
                     {
+                        agentInstance.AgentMemoryStore = cbmVal.Memory;
                         agentInstance.MemoryEnabled = true;
-                        agentInstance.MemoryMode = "long_term";
+                        agentInstance.MemoryMode = "conversation_buffer";
+                    }
+                    else if (val is EphemeralMemoryValue emVal)
+                    {
+                        agentInstance.AgentMemoryStore = emVal.Memory;
+                        agentInstance.MemoryEnabled = true;
+                        agentInstance.MemoryMode = "ephemeral";
+                    }
+                    else if (val is IAgentMemory agentMem)
+                    {
+                        agentInstance.AgentMemoryStore = agentMem;
+                        agentInstance.MemoryEnabled = true;
+                        agentInstance.MemoryMode = "custom";
                     }
                     else
                     {
-                        agentInstance.MemoryEnabled = val != null;
-                        agentInstance.MemoryMode = "long_term";
+                        string mStr = val?.ToString()?.ToLowerInvariant() ?? "";
+                        if (mStr is "false" or "none" or "disabled")
+                        {
+                            agentInstance.MemoryEnabled = false;
+                            agentInstance.MemoryMode = "none";
+                        }
+                        else if (mStr is "short_term" or "shortterm" or "ram" or "session")
+                        {
+                            agentInstance.MemoryEnabled = true;
+                            agentInstance.MemoryMode = "short_term";
+                        }
+                        else if (mStr is "long_term" or "longterm" or "persistent" or "disk" || val is true)
+                        {
+                            agentInstance.MemoryEnabled = true;
+                            agentInstance.MemoryMode = "long_term";
+                        }
+                        else
+                        {
+                            agentInstance.MemoryEnabled = val != null;
+                            agentInstance.MemoryMode = "long_term";
+                        }
                     }
                 }
             }
@@ -472,6 +499,20 @@ public sealed class AgentLangRuntime
                     var fnVal = new FunctionValue(afn.Name, afn.Parameters, afn.Body, agentScope);
                     agentInstance.Functions[afn.Name] = fnVal;
                     agentScope.SetLocal(afn.Name, fnVal);
+                }
+                else if (item is OnEventDeclarationNode evt)
+                {
+                    agentInstance.EventHandlers[evt.EventType] = evt;
+                    _eventBus.Subscribe(evt.EventType, async payload =>
+                    {
+                        var handlerScope = new RuntimeScope($"event:{evt.EventType}", agentScope);
+                        handlerScope.SetLocal(evt.ParameterName, payload);
+                        handlerScope.SetLocal("this", agentInstance);
+                        foreach (var stmt in evt.Body)
+                        {
+                            await ExecuteStatementAsync(stmt, handlerScope, ct);
+                        }
+                    });
                 }
             }
 
@@ -2129,6 +2170,154 @@ public sealed class AgentLangRuntime
                 return res.Output;
             }
 
+            if (calleeId.Name.Equals("VectorStoreMemory", StringComparison.OrdinalIgnoreCase) || calleeId.Name.Equals("VectorStore", StringComparison.OrdinalIgnoreCase))
+            {
+                string collection = "default";
+                int topK = 3;
+                string metric = "cosine";
+                for (int i = 0; i < call.Arguments.Count; i++)
+                {
+                    var arg = call.Arguments[i];
+                    if (arg is NamedArgumentExpressionNode na)
+                    {
+                        var val = await EvaluateExpressionAsync(na.Value, scope, ct);
+                        if (na.Name.Equals("collection", StringComparison.OrdinalIgnoreCase)) collection = val?.ToString() ?? collection;
+                        else if (na.Name.Equals("top_k", StringComparison.OrdinalIgnoreCase) || na.Name.Equals("topk", StringComparison.OrdinalIgnoreCase)) topK = Convert.ToInt32(val);
+                        else if (na.Name.Equals("similarity_metric", StringComparison.OrdinalIgnoreCase) || na.Name.Equals("metric", StringComparison.OrdinalIgnoreCase)) metric = val?.ToString() ?? metric;
+                    }
+                    else
+                    {
+                        var val = await EvaluateExpressionAsync(arg, scope, ct);
+                        if (i == 0) collection = val?.ToString() ?? collection;
+                        else if (i == 1) topK = Convert.ToInt32(val);
+                        else if (i == 2) metric = val?.ToString() ?? metric;
+                    }
+                }
+                return new VectorStoreMemoryValue(new VectorStoreMemory(collection, topK, metric));
+            }
+
+            if (calleeId.Name.Equals("ConversationBuffer", StringComparison.OrdinalIgnoreCase) || calleeId.Name.Equals("ConversationBufferMemory", StringComparison.OrdinalIgnoreCase))
+            {
+                int window = 5;
+                for (int i = 0; i < call.Arguments.Count; i++)
+                {
+                    var arg = call.Arguments[i];
+                    if (arg is NamedArgumentExpressionNode na && na.Name.Equals("window", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var val = await EvaluateExpressionAsync(na.Value, scope, ct);
+                        window = Convert.ToInt32(val);
+                    }
+                    else if (arg is not NamedArgumentExpressionNode)
+                    {
+                        var val = await EvaluateExpressionAsync(arg, scope, ct);
+                        if (val != null && int.TryParse(val.ToString(), out int w)) window = w;
+                    }
+                }
+                return new ConversationBufferValue(new ConversationBufferMemory(window));
+            }
+
+            if (calleeId.Name.Equals("EphemeralMemory", StringComparison.OrdinalIgnoreCase))
+            {
+                return new EphemeralMemoryValue(new EphemeralMemory());
+            }
+
+            if (calleeId.Name.Equals("ReAct", StringComparison.OrdinalIgnoreCase))
+            {
+                int maxSteps = 4;
+                if (call.Arguments.Count > 0 && call.Arguments[0] is NamedArgumentExpressionNode na && na.Name.Equals("max_steps", StringComparison.OrdinalIgnoreCase))
+                {
+                    var val = await EvaluateExpressionAsync(na.Value, scope, ct);
+                    if (val != null) int.TryParse(val.ToString(), out maxSteps);
+                }
+                return new Dictionary<string, object?> { ["strategy"] = "ReAct", ["max_steps"] = maxSteps };
+            }
+
+            if (calleeId.Name.Equals("emit_reply", StringComparison.OrdinalIgnoreCase))
+            {
+                object? chatId = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                object? replyText = call.Arguments.Count > 1 ? await EvaluateExpressionAsync(call.Arguments[1], scope, ct) : null;
+                await _output.WriteLineAsync($"[REPLY -> {chatId}]: {replyText}");
+                return new Dictionary<string, object?> { ["chat_id"] = chatId, ["text"] = replyText, ["status"] = "SENT" };
+            }
+
+            if (calleeId.Name.Equals("send_slack_alert", StringComparison.OrdinalIgnoreCase))
+            {
+                string channel = "#general";
+                string message = "";
+                for (int i = 0; i < call.Arguments.Count; i++)
+                {
+                    var arg = call.Arguments[i];
+                    if (arg is NamedArgumentExpressionNode na)
+                    {
+                        var val = await EvaluateExpressionAsync(na.Value, scope, ct);
+                        if (na.Name.Equals("channel", StringComparison.OrdinalIgnoreCase)) channel = val?.ToString() ?? channel;
+                        else if (na.Name.Equals("message", StringComparison.OrdinalIgnoreCase)) message = val?.ToString() ?? message;
+                    }
+                    else
+                    {
+                        var val = await EvaluateExpressionAsync(arg, scope, ct);
+                        if (i == 0) channel = val?.ToString() ?? channel;
+                        else if (i == 1) message = val?.ToString() ?? message;
+                    }
+                }
+                await _output.WriteLineAsync($"[SLACK ALERT {channel}]: {message}");
+                return new Dictionary<string, object?> { ["channel"] = channel, ["message"] = message, ["sent"] = true };
+            }
+
+            if (calleeId.Name.Equals("block_ip", StringComparison.OrdinalIgnoreCase))
+            {
+                object? ip = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                await _output.WriteLineAsync($"[FIREWALL]: Blocked IP {ip}");
+                return new Dictionary<string, object?> { ["ip"] = ip, ["blocked"] = true };
+            }
+
+            if (calleeId.Name.Equals("contains_suspicious_activity", StringComparison.OrdinalIgnoreCase))
+            {
+                object? target = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                string s = target?.ToString()?.ToLowerInvariant() ?? "";
+                bool isSuspicious = s.Contains("suspicious") || s.Contains("brute force") || s.Contains("attack") ||
+                                    s.Contains("unauthorized") || s.Contains("malicious") || s.Contains("exploit") ||
+                                    s.Contains("failed login") || s.Contains("injection") || s.Contains("denied") ||
+                                    s.Contains("403") || s.Contains("مشکوک") || s.Contains("نفوذ") || s.Contains("حمله");
+                return isSuspicious;
+            }
+
+            if (calleeId.Name.Equals("contains", StringComparison.OrdinalIgnoreCase))
+            {
+                object? left = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                object? right = call.Arguments.Count > 1 ? await EvaluateExpressionAsync(call.Arguments[1], scope, ct) : null;
+                if (left is string ls && right != null)
+                    return ls.Contains(right.ToString()!, StringComparison.OrdinalIgnoreCase);
+                if (left is System.Collections.IEnumerable list && left is not string)
+                {
+                    foreach (var item in list)
+                    {
+                        if (object.Equals(item, right) || (item != null && right != null && item.ToString() == right.ToString()))
+                            return true;
+                    }
+                    return false;
+                }
+                return false;
+            }
+
+            if (calleeId.Name.Equals("in", StringComparison.OrdinalIgnoreCase))
+            {
+                object? left = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                object? right = call.Arguments.Count > 1 ? await EvaluateExpressionAsync(call.Arguments[1], scope, ct) : null;
+                if (right is string rs && left != null)
+                    return rs.Contains(left.ToString()!, StringComparison.OrdinalIgnoreCase);
+                if (right is System.Collections.IEnumerable rlist && right is not string)
+                {
+                    foreach (var item in rlist)
+                    {
+                        if (object.Equals(item, left) || (item != null && left != null && item.ToString() == left.ToString()))
+                            return true;
+                    }
+                    return false;
+                }
+                return false;
+            }
+
             // Task invocation by name within current agent
             if (CurrentAgent != null && CurrentAgent.Tasks.TryGetValue(calleeId.Name, out var tv))
             {
@@ -2356,6 +2545,47 @@ public sealed class AgentLangRuntime
                 {
                     return targetAgent.History;
                 }
+                else if (methodName is "reason_and_reply")
+                {
+                    string query = "";
+                    string context = "";
+                    if (call.Arguments.Count > 0)
+                    {
+                        var qVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        query = qVal?.ToString() ?? "";
+                    }
+                    if (call.Arguments.Count > 1)
+                    {
+                        var cVal = await EvaluateExpressionAsync(call.Arguments[1], scope, ct);
+                        context = cVal?.ToString() ?? "";
+                    }
+
+                    string reply = GenerateReasonAndReply(targetAgent, query, context);
+                    if (targetAgent.AgentMemoryStore is ConversationBufferMemory convBuf)
+                    {
+                        convBuf.Add("user", query);
+                        convBuf.Add("assistant", reply);
+                    }
+                    else if (targetAgent.AgentMemoryStore is VectorStoreMemory vecStore)
+                    {
+                        vecStore.Store($"User: {query}\nAgent: {reply}");
+                    }
+                    return reply;
+                }
+                else if (targetAgent.EventHandlers.TryGetValue(agentMember.MemberName, out var agentEvt) ||
+                         (methodName is "handle" && targetAgent.EventHandlers.Count > 0))
+                {
+                    var evtHandler = agentEvt ?? targetAgent.EventHandlers.Values.First();
+                    var handlerScope = new RuntimeScope($"event:{evtHandler.EventType}", scope);
+                    object? payload = call.Arguments.Count > 0 ? await EvaluateExpressionAsync(call.Arguments[0], scope, ct) : null;
+                    handlerScope.SetLocal(evtHandler.ParameterName, payload);
+                    handlerScope.SetLocal("this", targetAgent);
+                    foreach (var stmt in evtHandler.Body)
+                    {
+                        await ExecuteStatementAsync(stmt, handlerScope, ct);
+                    }
+                    return true;
+                }
                 else if (targetAgent.Functions.TryGetValue(agentMember.MemberName, out var agentFn))
                 {
                     return await InvokeFunctionAsync(agentFn, call.Arguments, scope, ct);
@@ -2363,6 +2593,111 @@ public sealed class AgentLangRuntime
                 else if (targetAgent.Tasks.TryGetValue(agentMember.MemberName, out var agentTask))
                 {
                     return agentTask.Result;
+                }
+            }
+
+            if (targetObj is VectorStoreMemoryValue vecVal)
+            {
+                string mName = agentMember.MemberName.ToLowerInvariant();
+                if (mName is "store" or "add")
+                {
+                    string text = "";
+                    Dictionary<string, object?>? meta = null;
+                    if (call.Arguments.Count > 0)
+                    {
+                        var tVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        text = tVal?.ToString() ?? "";
+                    }
+                    if (call.Arguments.Count > 1)
+                    {
+                        var mVal = await EvaluateExpressionAsync(call.Arguments[1], scope, ct);
+                        if (mVal is Dictionary<string, object?> d) meta = d;
+                    }
+                    vecVal.Memory.Store(text, meta);
+                    return true;
+                }
+                else if (mName is "retrieve" or "search")
+                {
+                    string query = "";
+                    int topK = vecVal.Memory.TopK;
+                    if (call.Arguments.Count > 0)
+                    {
+                        var qVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        query = qVal?.ToString() ?? "";
+                    }
+                    if (call.Arguments.Count > 1)
+                    {
+                        var kVal = await EvaluateExpressionAsync(call.Arguments[1], scope, ct);
+                        if (kVal != null) topK = Convert.ToInt32(kVal);
+                    }
+                    var docs = vecVal.Memory.Retrieve(query, topK);
+                    return docs.ToList();
+                }
+                else if (mName is "clear")
+                {
+                    vecVal.Memory.Clear();
+                    return true;
+                }
+            }
+
+            if (targetObj is ConversationBufferValue convVal)
+            {
+                string mName = agentMember.MemberName.ToLowerInvariant();
+                if (mName is "add" or "store")
+                {
+                    string role = "user";
+                    string text = "";
+                    if (call.Arguments.Count == 1)
+                    {
+                        var tVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        text = tVal?.ToString() ?? "";
+                    }
+                    else if (call.Arguments.Count >= 2)
+                    {
+                        var rVal = await EvaluateExpressionAsync(call.Arguments[0], scope, ct);
+                        var tVal = await EvaluateExpressionAsync(call.Arguments[1], scope, ct);
+                        role = rVal?.ToString() ?? "user";
+                        text = tVal?.ToString() ?? "";
+                    }
+                    convVal.Memory.Add(role, text);
+                    return true;
+                }
+                else if (mName is "retrieve" or "get_history" or "history")
+                {
+                    string query = call.Arguments.Count > 0 ? (await EvaluateExpressionAsync(call.Arguments[0], scope, ct))?.ToString() ?? "" : "";
+                    var docs = convVal.Memory.Retrieve(query, 100);
+                    return docs.ToList();
+                }
+                else if (mName is "clear")
+                {
+                    convVal.Memory.Clear();
+                    return true;
+                }
+            }
+
+            if (targetObj is EphemeralMemoryValue ephVal)
+            {
+                string mName = agentMember.MemberName.ToLowerInvariant();
+                if (mName is "store" or "set")
+                {
+                    string key = (await EvaluateExpressionAsync(call.Arguments[0], scope, ct))?.ToString() ?? "";
+                    var val = call.Arguments.Count > 1 ? await EvaluateExpressionAsync(call.Arguments[1], scope, ct) : null;
+                    ephVal.Memory.Set(key, val);
+                    ephVal.Memory.Store(val?.ToString() ?? key);
+                    return true;
+                }
+                else if (mName is "retrieve" or "get")
+                {
+                    string key = (await EvaluateExpressionAsync(call.Arguments[0], scope, ct))?.ToString() ?? "";
+                    var val = ephVal.Memory.Get(key);
+                    if (val != null) return val;
+                    var docs = ephVal.Memory.Retrieve(key, 1);
+                    return docs.FirstOrDefault();
+                }
+                else if (mName is "clear")
+                {
+                    ephVal.Memory.Clear();
+                    return true;
                 }
             }
 
@@ -2717,7 +3052,12 @@ public sealed class AgentLangRuntime
             if (member.Equals("inbox", StringComparison.OrdinalIgnoreCase))
                 return av.Inbox;
             if (member.Equals("memory", StringComparison.OrdinalIgnoreCase))
+            {
+                if (av.AgentMemoryStore is VectorStoreMemory vsm) return new VectorStoreMemoryValue(vsm);
+                if (av.AgentMemoryStore is ConversationBufferMemory cbm) return new ConversationBufferValue(cbm);
+                if (av.AgentMemoryStore is EphemeralMemory em) return new EphemeralMemoryValue(em);
                 return av.Memory;
+            }
             if (member.Equals("model", StringComparison.OrdinalIgnoreCase))
                 return av.Model;
             if (member.Equals("name", StringComparison.OrdinalIgnoreCase))
@@ -2816,6 +3156,16 @@ public sealed class AgentLangRuntime
         }
 
         return null;
+    }
+
+    private static string GenerateReasonAndReply(AgentValue agent, string query, string context)
+    {
+        string role = agent.Role ?? agent.Persona ?? agent.Name;
+        if (!string.IsNullOrWhiteSpace(context))
+        {
+            return $"[{agent.Name}] Based on context: '{context}', regarding '{query}': Analysis completed in role '{role}'.";
+        }
+        return $"[{agent.Name}] In role '{role}': Regarding '{query}', here is the analysis and reasoning.";
     }
 
     private static object? EvaluateBinary(object? left, BinaryOperator op, object? right)

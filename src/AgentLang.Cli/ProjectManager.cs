@@ -103,7 +103,7 @@ public static class ProjectManager
         string readme = $"""
             # {projectName}
 
-            Created with AgentLang v0.6.1.
+            Created with AgentLang v0.6.2.
 
             ## Run
             ```bash

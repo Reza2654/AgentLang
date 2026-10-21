@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentLang.Runtime\AgentLang.Runtime.csproj" />
     <ProjectReference Include="..\..\src\AgentLang.Cli\AgentLang.Cli.csproj" />
+    <ProjectReference Include="..\..\src\AgentLang.Transpiler\AgentLang.Transpiler.csproj" />
   </ItemGroup>
 
 </Project>
