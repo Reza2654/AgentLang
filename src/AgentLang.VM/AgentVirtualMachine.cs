@@ -3,6 +3,9 @@ using AgentLang.Lexer;
 using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Runtime.Values;
+using AgentLang.VM.Actors;
+using AgentLang.VM.Optimization;
+using AgentLang.VM.Scheduling;
 
 namespace AgentLang.VM;
 
@@ -10,6 +13,9 @@ public sealed class AgentVirtualMachine
 {
     public VmOptions Options { get; }
     public AgentLangRuntime Runtime { get; }
+    public AgentActorSystem ActorSystem { get; } = new();
+    public TokenCache Cache { get; } = new();
+    public ToolScheduler Scheduler { get; } = new();
     public long CyclesExecuted { get; private set; }
     public string Status { get; private set; } = "Ready";
 

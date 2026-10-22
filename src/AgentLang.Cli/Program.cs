@@ -9,7 +9,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.3";
+    public const string Version = "0.6.4";
 
     public static async Task<int> Main(string[] args)
     {
@@ -47,6 +47,7 @@ public static class Program
                 "update" => HandleUpdate(args),
                 "list" => HandleList(args),
                 "pack" => HandlePack(args),
+                "docker" => HandleDocker(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -83,6 +84,7 @@ public static class Program
         Console.WriteLine("  update <pkg>          Update a package dependency");
         Console.WriteLine("  list                  List project dependencies");
         Console.WriteLine("  pack [dir] [-o <file>] Bundle an Agent project into a distributable .agtpkg archive");
+        Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
@@ -228,6 +230,17 @@ public static class Program
             }
         }
 
+        if (args.Any(a => a is "--docker" or "-d"))
+        {
+            string projectDir = Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? Directory.GetCurrentDirectory();
+            var (df, di) = ProjectManager.GenerateDockerFiles(projectDir, Path.GetFileName(filePath));
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Generated container deployment files:");
+            Console.WriteLine($"  - {df}");
+            Console.WriteLine($"  - {di}");
+            Console.ResetColor();
+        }
+
         if (!string.IsNullOrEmpty(targetLang))
         {
             return DoTranspile(program, filePath, targetLang, outputFile);
@@ -237,6 +250,30 @@ public static class Program
         Console.WriteLine($"✓ Build succeeded: '{filePath}' passed syntax and semantic verification.");
         Console.ResetColor();
         return 0;
+    }
+
+    private static int HandleDocker(string[] args)
+    {
+        string dir = args.Length > 1 && !args[1].StartsWith('-') ? args[1] : Directory.GetCurrentDirectory();
+        string entry = args.Length > 2 && !args[2].StartsWith('-') ? args[2] : "main.agt";
+
+        try
+        {
+            var (df, di) = ProjectManager.GenerateDockerFiles(dir, entry);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Generated Docker container files in: {dir}");
+            Console.WriteLine($"  - Dockerfile (Entrypoint: {entry})");
+            Console.WriteLine($"  - .dockerignore");
+            Console.ResetColor();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error generating Docker configuration: {ex.Message}");
+            Console.ResetColor();
+            return 1;
+        }
     }
 
     private static int HandleTranspile(string[] args)

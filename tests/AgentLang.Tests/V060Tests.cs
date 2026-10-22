@@ -30,7 +30,7 @@ public class V060Tests
         try
         {
             Console.SetOut(sw);
-            var runtime = new AgentLangRuntime();
+            var runtime = new AgentLangRuntime(output: sw);
             await runtime.ExecuteProgramAsync(program);
             return sw.ToString().Trim();
         }

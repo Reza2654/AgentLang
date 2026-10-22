@@ -2,6 +2,7 @@ using AgentLang.AST;
 using AgentLang.Lexer;
 using AgentLang.Parser;
 using AgentLang.Runtime;
+using AgentLang.Security;
 using AgentLang.Semantic;
 using Xunit;
 
@@ -30,7 +31,8 @@ public class V061Tests
         try
         {
             Console.SetOut(sw);
-            var runtime = new AgentLangRuntime();
+            var sec = new SecurityEngine(new AutoApprovalProvider(true));
+            var runtime = new AgentLangRuntime(securityEngine: sec, output: sw);
             await runtime.ExecuteProgramAsync(program);
             return sw.ToString().Trim();
         }

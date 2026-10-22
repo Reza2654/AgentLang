@@ -1,386 +1,294 @@
-# AgentLang — v0.2.1
+# AgentLang — v0.6.4
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
-[![Build and Test](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Version](https://img.shields.io/badge/Release-v0.2.1-blue)](https://github.com/Reza2654/AgentLang/releases)
+[![Release](https://img.shields.io/badge/Release-v0.6.4-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-125%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 1. What is AgentLang?
+## 🌟 What is AgentLang?
 
-**AgentLang** is a programming language designed from the ground up to make **AI Agents** first-class programming constructs.
+**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Goal-Oriented Reasoning**, and **Enterprise Guardrails** first-class language primitives.
 
-Instead of writing complex glue code across multiple Python libraries, prompt templates, and brittle API wrappers, AgentLang provides a cohesive, deterministic, and secure syntax where **Agents, Tasks, Models, Tools, Permissions, Functions, Context, Events, and Multi-Agent Orchestration** are native language primitives.
+Instead of writing hundreds of lines of fragile glue code in Python or TypeScript with string-interpolated prompts and unverified tool calls, AgentLang provides a **deterministic, compiler-checked, sandboxed DSL** with native file extension **`.agt`**.
 
 ```text
-Program
-  ↓
-main
-  ↓
-Agent / MultiAgent / Function / Tool
-  ↓
-Tasks (with Model Overrides)
-  ↓
-Tools / Models / Context / Persistent Memory / Messaging
-  ↓
-Enriched Operation Results & Telemetry
+               AgentLang Script (.agt)
+                         ↓
+  Lexer ➔ Parser ➔ AST ➔ Semantic Analyzer
+                         ↓
+            ┌─────────────────────────┐
+            │     AgentLang Runtime   │
+            ├─────────────────────────┤
+            │  • ReAct Engine         │
+            │  • Memory & VectorStore │
+            │  • Guardrails & Budget  │
+            │  • Modular Imports      │
+            └────────────┬────────────┘
+                         ↓
+            ┌─────────────────────────┐
+            │      AgentLang VM       │
+            ├─────────────────────────┤
+            │  • Sandboxed Execution  │
+            │  • Cycle Count Limits   │
+            │  • Actor Model & Mailbox│
+            │  • Context Compactor    │
+            │  • Tool Scheduler       │
+            └─────────────────────────┘
 ```
 
 ---
 
-## 2. Quick Example
+## 🚀 Key Features
+
+### 1. Agent Scripting DSL (`.agt`) & Top-Level Scripting
+Define agents declaratively with model configurations, personas, strategies, tools, and memory stores. Top-level scripting allows running statements immediately without requiring boilerplates:
 
 ```agentlang
-// Model alias definition
-model fast = mock
+agent ResearchAssistant {
+    model: "claude-3-5-sonnet"
+    persona: "Rigorous research analyst focusing on empirical evidence"
+    tools: [web_search, summarize_document]
+    memory: ConversationBuffer(window: 5)
+    strategy: ReAct(max_steps: 4)
+}
 
-// First-class custom tool defined directly in script
-tool data_validator {
-    description = "Validates structured research findings"
-    input text: string
-    execute {
-        if (text == "") {
-            return false
+goal task1 = "Summarize latest developments in Autonomous Agent VMs."
+response = ResearchAssistant.achieve(task1)
+print(response.output)
+```
+
+---
+
+### 2. Multi-Agent Collaborative Pipelines (`pipeline`) & Evaluation Loops
+Create multi-agent collaborative workflows with built-in convergence loops:
+
+```agentlang
+agent Writer {
+    model: "gpt-4o"
+    role: "Drafts comprehensive technical reports"
+}
+
+agent Critic {
+    model: "gpt-4o"
+    role: "Reviews technical accuracy and formatting"
+}
+
+pipeline ContentPipeline {
+    input topic: string
+    
+    draft = Writer.draft(topic)
+    
+    loop until Critic.approves(draft) max_retries 3 {
+        feedback = Critic.review(draft)
+        draft = Writer.revise(draft, with: feedback)
+    }
+    
+    return draft
+}
+
+result = ContentPipeline.run("Decentralized AI Agents")
+print(result.output)
+```
+
+---
+
+### 3. Shared State Management (`state`) & Team Workflows (`workflow`)
+Orchestrate structured state transitions between multiple coordinating agents:
+
+```agentlang
+state FeatureState {
+    spec: string = ""
+    code: string = ""
+    status: string = "PLANNING"
+}
+
+workflow BuildFeature(user_story: string) -> FeatureState {
+    init state = FeatureState()
+
+    state.spec = TechLead.execute("Design spec for: " + user_story)
+    state.status = "CODING"
+
+    loop attempts from 1 to 3 {
+        state.code = Developer.execute(spec: state.spec)
+        test_run = QAEngineer.run_tests(code: state.code)
+        
+        if (test_run.passed) {
+            state.status = "DONE"
+            break
         }
-        return true
-    }
-}
-
-// Zero-trust permission policy
-permission ResearchPermission {
-    allow browser.search
-    allow data_validator
-    ask filesystem.write
-    cannot terminal
-}
-
-// Reusable first-class function
-function formatSummary(title, content) {
-    return "=== " + title + " ===\n" + content
-}
-
-agent Researcher (
-    model = fast,
-    permission = ResearchPermission,
-    tools = [browser, data_validator]
-) {
-    context topic = "Autonomous AI Agent Architecture"
-
-    task research {
-        data = research(topic)
-        isValid = data_validator(data.result)
-        answer = think("Summarize verified research: " + data.result)
-        return answer
     }
 
-    summary = formatSummary(topic, research.result)
-    print(summary)
-    print("Execution latency: " + research.duration + "ms, Model: " + research.model)
-}
-
-main {
-    print("Starting AgentLang v0.2.0 workflow...")
-    agent Researcher
-    print("Execution complete.")
+    return state
 }
 ```
 
 ---
 
-## 3. Core Concepts
-
-### A. First-Class `agent` & Lifecycle
-An agent executes top-to-bottom and encapsulates configuration (model, memory, permissions, tools), context state, tasks, and programming logic.
+### 4. Reactive Events & Semantic Decision-Making (`on event`, `decide`)
+React asynchronously to events and logs using semantic reasoning and safety actions:
 
 ```agentlang
-agent Analyst (
-    model = GPT,
-    permission = AnalystPolicy,
-    tools = [browser, calculator]
-) {
-    ...
-}
-```
+agent Sentinel {
+    tools: [send_slack_alert, block_ip]
 
-### B. First-Class Functions & Scoping
-Declare reusable functions with parameters, return statements, lexical scoping, closures, and call stack recursion guards (max 256 calls):
-
-```agentlang
-function calculateScore(factors) {
-    total = 0
-    for factor in factors {
-        total = total + factor
-    }
-    return total
-}
-```
-
-### C. Extended Type System & Index Access
-AgentLang supports 11 first-class runtime types: `string`, `number`, `boolean`, `list`, `map`, `null`, `agent`, `task`, `operation`, `function`, and `tool`.
-
-```agentlang
-items = ["apple", "banana", "cherry"]
-print(items[0])                    // Index access: "apple"
-
-config = { tier: "pro", active: true }
-print(config["tier"])              // Map access: "pro"
-
-print(type(items))                 // "list"
-print(type(config))                // "map"
-```
-
-### D. Model System 2.0 (Aliases & Task Overrides)
-Define top-level model aliases and override models per-task:
-
-```agentlang
-model fast = mock
-model heavy = mock
-
-agent MultiModelAgent (model = fast) {
-    task quickCheck (model = fast) {
-        return think("Quick sanity check")
-    }
-
-    task deepAnalysis (model = heavy) {
-        return think("Deep multi-step reasoning")
+    on event(ServerLog log) {
+        decide (log.content contains_suspicious_activity) {
+            reasoning: "Analyze breach patterns and brute-force indicators"
+            action {
+                block_ip(log.ip)
+                send_slack_alert(channel: "#security", message: "IP Blocked: " + log.ip)
+            }
+        }
     }
 }
 ```
-
-### E. First-Class Custom Tools
-Define custom tools with typed parameters and executable blocks directly within your `.agent` files:
-
-```agentlang
-tool calculate_tax {
-    description = "Calculates total amount including sales tax"
-    input amount: number
-    input rate: number
-    execute {
-        tax = amount * rate
-        return amount + tax
-    }
-}
-```
-
-### F. Agent Communication & Messaging
-Agents can communicate asynchronously using message passing:
-
-```agentlang
-// Send messages with optional tags
-send "Quarterly report draft ready" to Reviewer tag "report"
-
-// Inspect agent inbox
-for msg in Reviewer.inbox {
-    print("From: " + msg.sender + " [Tag: " + msg.tag + "]: " + msg.content)
-}
-```
-
-### G. Persistent Memory
-Agent memory can persist across separate program invocations using `LocalFileMemoryStore` (saved to `.agentlang/memory/{agent}.json`):
-
-```agentlang
-agent StatefulAgent (model = mock) {
-    task rememberPreference {
-        return think("Store user preference: Dark Mode")
-    }
-}
-```
-
-### H. First-Class `task` & Explicit `.result` Access
-AgentLang distinguishes between an **Operation** and its **Result**:
-- `answer = think(data)` produces an `OperationValue` with rich telemetry (`.status`, `.result`, `.model`, `.duration`, `.error`, `.type`, `.toolCalls`).
-- `answer.result` evaluates the actual payload.
-- `Analyst.research.result` enables clean cross-agent referencing in MultiAgent workflows.
-
-### I. Zero-Trust `permission` & Human Approval
-Security is enforced by the runtime engine before any capability is executed. Model instructions and prompt engineering are **never** treated as security boundaries.
-
-Modes:
-- `allow`: Immediate authorized execution.
-- `ask`: Runtime pauses and prompts for **Human Approval** (interactive `[y/N]` prompt or `--yes` auto-approve flag).
-- `cannot`: Disallowed, throws `AgentLangPermissionException` (`AGT600`).
-
-```agentlang
-permission StrictPolicy {
-    allow browser.search
-    ask filesystem.write
-    cannot terminal
-}
-```
-
-### J. Structured Error Hierarchy (`AGTxxx`)
-All AgentLang exceptions adhere to standardized, machine-readable error codes:
-
-| Code | Exception Type | Description |
-| :--- | :--- | :--- |
-| `AGT100` | `AgentLangSyntaxException` | Parser and syntax errors with line/column pointers |
-| `AGT200` | `AgentLangSemanticException` | Semantic errors, unresolved symbols, type mismatches |
-| `AGT300` | `AgentLangRuntimeException` | Generic runtime errors |
-| `AGT301` | `AgentLangRuntimeException` | Call stack overflow (recursion depth > 256) |
-| `AGT302` | `AgentLangRuntimeException` | Index out of range (list, string, or map) |
-| `AGT400` | `AgentLangModelException` | LLM provider failures, API errors, or rate limits |
-| `AGT500` | `AgentLangToolException` | Tool invocation errors and invalid arguments |
-| `AGT600` | `AgentLangPermissionException` | Zero-trust security policy violations |
-| `AGT601` | `AgentLangApprovalException` | Human approval denied during interactive confirmation |
-| `AGT700` | `AgentLangNetworkException` | Network connection failures |
-| `AGT701` | `AgentLangTimeoutException` | Execution and HTTP request timeouts |
 
 ---
 
-## 4. Architecture
+### 5. Enterprise Guardrails, Budgeting & Human-in-the-Loop
+Enforce strict output schemas, forbidden patterns, and token/cost budgets at runtime:
 
-AgentLang is implemented as a clean, modular multi-project solution in C# 14 / .NET 10:
+```agentlang
+agent FinancialAnalyst {
+    model: "gpt-4o"
+    
+    guardrails {
+        forbid: ["guaranteed profit", "financial advice"]
+        require_format: Schema(summary: string, risks: list[string])
+    }
+}
+
+budget max_tokens: 3000 max_cost: 0.05 {
+    try {
+        report = FinancialAnalyst.achieve("Quarterly fiscal audit")
+    } catch (BudgetExceededError err) {
+        print("Budget limit reached: " + err.message)
+    } catch (GuardrailViolationError err) {
+        transfer_to_human(reason: "Policy violation flagged")
+    }
+}
+```
+
+---
+
+### 6. Agent Virtual Machine (`AgentLang.VM`)
+The dedicated Agent Virtual Machine provides complete sandboxing and execution safety:
+- **Instruction Cycle Limit**: Prevents infinite loops or runaway compute (`VmCycleLimitExceededException` / `VM101`).
+- **Capability Gating**: Enforces zero-trust permissions on sensitive tools (`VmSandboxViolationException` / `VM102`).
+- **State Checkpointing**: Create and restore snapshots of agent memory and global variables via `vm.CreateSnapshot()` and `vm.RestoreSnapshot()`.
+
+```csharp
+var options = new VmOptions
+{
+    MaxInstructions = 10_000,
+    EnableSandboxing = true,
+    AllowedCapabilities = ["memory.*"]
+};
+
+var vm = new AgentVirtualMachine(options);
+await vm.ExecuteAsync(scriptCode);
+
+var snapshot = vm.CreateSnapshot("checkpoint_alpha");
+string json = snapshot.ToJson();
+vm.RestoreSnapshot(snapshot);
+```
+
+---
+
+### 7. Actor Model Concurrency (`AgentActorSystem`)
+Isolated actor execution inspired by Erlang/BEAM:
+- **Mailbox**: Non-blocking asynchronous message passing (`AskAsync`, `TellAsync`, `SendAsync`, `BroadcastAsync`).
+- **Supervision Strategies**: Automatic fault recovery with `Restart`, `Resume`, or `Stop` policies.
+
+```csharp
+var actorSystem = new AgentActorSystem();
+var worker = actorSystem.Spawn("calculator", async (self, msg) => {
+    return (int)msg.Payload * 2;
+}, strategy: SupervisionStrategy.Restart);
+
+var result = await worker.AskAsync(21); // 42
+```
+
+---
+
+### 8. Context Window Compaction & Rate Limiting
+- **`ContextCompactor`**: Semantic summarization of older conversation turns into cohesive system memos while preserving recent context.
+- **`TokenCache`**: Deterministic prompt completion and tool response caching with TTL and hit-rate tracking.
+- **`ToolScheduler`**: Sliding-window rate limiter and concurrency semaphore preventing API provider rate-limits (HTTP 429).
+
+---
+
+### 9. Modular Imports & Standard Library (`@stdlib/*`)
+Organize code into reusable packages:
+```agentlang
+import "./math_utils.agt";
+import { sha256, uuid } from "@stdlib/crypto";
+import { split, join, trim } from "@stdlib/text";
+import { chunk_text, similarity } from "@stdlib/rag";
+
+hash = sha256("AgentLang")
+chunks = chunk_text("Autonomous AI agent system", 20, 5)
+```
+- Built-in circular import detection (`MOD002`).
+- In-memory module caching.
+
+---
+
+### 10. Code Transpilation
+Transpile AgentLang scripts into popular production AI ecosystems:
+```bash
+agent build app.agt --target python   # Emits clean LangGraph / CrewAI Python code
+agent build app.agt --target ts       # Emits TypeScript code for Vercel AI SDK
+```
+
+---
+
+### 11. Packaging & Docker Deployment
+- **Manifest & Lockfile**: `agent.json` and `agent.lock` with SHA-256 integrity hashes.
+- **Bundling**: `agent pack` packages your project into a `.agtpkg` distribution archive.
+- **Docker Export**: `agent docker` generates optimized multi-stage production Dockerfile and `.dockerignore`.
+
+---
+
+## 🛠️ CLI Reference
+
+| Command | Description |
+| :--- | :--- |
+| `agent run <file>` | Execute an AgentLang script (`.agt` or `.agent`) |
+| `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
+| `agent repl` | Launch interactive REPL environment |
+| `agent check [file]` | Static syntax and semantic verification |
+| `agent format [file] [-w]` | Format AgentLang source code |
+| `agent test [target]` | Run test suites |
+| `agent build <file> [flags]` | Validate, transpile (`--target python\|ts`), or dockerize (`--docker`) |
+| `agent pack [dir]` | Bundle project into distributable `.agtpkg` archive |
+| `agent docker [dir] [entry]`| Generate production `Dockerfile` and `.dockerignore` |
+| `agent new <name>` | Scaffold a new AgentLang project |
+| `agent doctor` | Diagnose runtime, models, tools, and search providers |
+| `agent install <pkg>` | Install a project dependency |
+
+---
+
+## 🧪 Testing & Verification
+
+The test suite contains **125 automated unit and integration tests** with a **100% pass rate**:
+
+```bash
+dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
+```
 
 ```text
-AgentLang/
-├── AgentLang.sln
-├── src/
-│   ├── AgentLang.AST/          # AST nodes, diagnostics, and structured AGTxxx exceptions
-│   ├── AgentLang.Lexer/        # Token scanner, keyword dictionary, line/col tracking
-│   ├── AgentLang.Parser/       # Pratt & recursive descent parser with error recovery
-│   ├── AgentLang.Semantic/     # Scope resolution, symbol table, Levenshtein suggestions
-│   ├── AgentLang.Security/     # Permission policies (allow/ask/cannot) & human approval
-│   ├── AgentLang.Models/       # Provider abstractions (Mock, OpenAI, Gemini, Anthropic) & aliases
-│   ├── AgentLang.Tools/        # Tool sandbox and in-script custom tool execution
-│   ├── AgentLang.Runtime/      # Execution engine, functions, memory stores, messaging & EventBus
-│   └── AgentLang.Cli/          # CLI tooling ('agent run', 'repl', 'check', 'format', 'test', etc.)
-└── tests/
-    ├── AgentLang.Tests/            # Unit test suite (Lexer, Parser, Semantic, Security, Runtime)
-    └── AgentLang.IntegrationTests/ # E2E tests executing all 16 runnable examples
+Passed!  - Failed: 0, Passed: 125, Skipped: 0, Total: 125, Duration: 643 ms
 ```
 
 ---
 
-## 5. CLI Usage
+## 📄 License
 
-The `agent` CLI provides a complete suite of developer tooling:
-
-```bash
-# Display version (0.2.0)
-agent --version
-
-# Interactive REPL session
-agent repl
-
-# Fast static syntax and semantic verification
-agent check main.agent
-agent check examples/
-
-# Format AgentLang source code (AST pretty-printer)
-agent format main.agent
-agent format --dry-run examples/
-
-# Run automated tests
-agent test tests/
-
-# Execute an AgentLang program
-agent run main.agent
-
-# Execute with automated approval (headless / CI mode)
-agent run main.agent --yes
-
-# Parse and semantically validate without running
-agent build main.agent
-
-# System diagnostics (validates .NET 10, compiler, security sandbox, models, tools)
-agent doctor
-
-# Scaffold a new project
-agent new MyAgentProject
-
-# Manage package dependencies
-agent install browser 1.0.0
-agent list
-agent remove browser
-```
-
----
-
-## 6. Examples
-
-Explore the complete collection of 16 runnable examples in [`examples/`](examples/):
-
-| Example | Category | Description |
-| :--- | :--- | :--- |
-| [`hello-agent`](examples/hello-agent/main.agent) | Basics | Minimal entry point with basic agent and output |
-| [`functions`](examples/functions/main.agent) | **v0.2.0** | First-class functions, recursion, and type checking |
-| [`custom-tools`](examples/custom-tools/main.agent) | **v0.2.0** | In-script custom tool declaration and execution |
-| [`agent-communication`](examples/agent-communication/main.agent) | **v0.2.0** | Message passing with `send ... to` and `inbox` |
-| [`model-overrides`](examples/model-overrides/main.agent) | **v0.2.0** | Model aliases and task-level model overrides |
-| [`persistent-memory`](examples/persistent-memory/main.agent) | **v0.2.0** | Persistent memory retention across agent runs |
-| [`structured-errors`](examples/structured-errors/main.agent) | **v0.2.0** | Error handling with typed `AGTxxx` error codes |
-| [`search-api`](examples/search-api/main.agent) | **v0.2.1** | Web Search API integration and API key enforcement |
-| [`simple-researcher`](examples/simple-researcher/main.agent) | Workflows | Research agent with tools, models, and `.result` |
-| [`permissions`](examples/permissions/main.agent) | Security | Zero-trust permission policies (`allow`, `ask`, `cannot`) |
-| [`tools`](examples/tools/main.agent) | Tools | Built-in tool integration (`browser`, `filesystem`) |
-| [`memory`](examples/memory/main.agent) | Memory | Context memory vs. stateless (`memory = null`) agents |
-| [`multiagent`](examples/multiagent/main.agent) | Orchestration | Multi-agent collaboration and cross-agent result passing |
-| [`parallel`](examples/parallel/main.agent) | Concurrency | Concurrent execution using `parallel { ... }` |
-| [`events`](examples/events/main.agent) | Reactive | Event-driven agents reacting to `task.finished` |
-| [`retry`](examples/retry/main.agent) | Resilience | Fault-tolerant task retry with exponential backoff |
-| [`human-approval`](examples/human-approval/main.agent) | Governance | Guarded execution requiring interactive human approval |
-
-Run any example directly:
-```bash
-dotnet run --project src/AgentLang.Cli -- run examples/search-api/main.agent
-```
-
----
-
-## 7. Model & Search API Providers
-
-AgentLang includes deterministic offline providers by default: **`MockModelProvider`** and **`MockSearchProvider`**. **No paid API keys are required to build, test, or run offline examples.**
-
-### AI Model Providers
-Configure standard environment variables (or `.env` file) for live LLMs:
-
-| Provider | Environment Variable | Supported Models |
-| :--- | :--- | :--- |
-| **OpenAI / Compatible** | `OPENAI_API_KEY` | `gpt-4o`, `gpt-4o-mini`, `o1`, `o3-mini`, LocalAI, Ollama |
-| **Google Gemini** | `GEMINI_API_KEY` | `gemini-2.5-flash`, `gemini-1.5-pro` |
-| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet`, `claude-3-haiku` |
-
-### Web Search API Providers (v0.2.1)
-Whenever an agent executes `research(...)` or `browser.search(...)`, an API key is required for real web search:
-
-| Search Provider | Environment Variable | Description |
-| :--- | :--- | :--- |
-| **Tavily AI Search** | `TAVILY_API_KEY` | Built specifically for AI agents & LLMs (clean snippets & markdown) |
-| **Google Serper** | `SERPER_API_KEY` | Real-time structured Google search results |
-| **Brave Search** | `BRAVE_API_KEY` | Privacy-preserving independent web search API |
-| **Generic Search** | `SEARCH_API_KEY` | Generic search key fallback |
-| **Mock Search** | `AGENTLANG_MOCK_SEARCH=1` | Deterministic offline search for automated testing and CI |
-
-If an agent attempts live web search without an API key, AgentLang throws an `AgentLangToolException` (`AGT500`) with clear instructions.
-
----
-
-## 8. Current Status & Roadmap
-
-AgentLang is currently in **v0.2.1**.
-
-### Completed in v0.2.1:
-- [x] Pluggable Web Search API provider architecture (`ISearchProvider`)
-- [x] Real-world search providers: Tavily, Google Serper, Brave Search, Generic
-- [x] Strict API key validation and enforcement for web search queries (`AGT500`)
-- [x] Deterministic offline `MockSearchProvider` for zero-cost testing
-- [x] Automatic `.env` configuration file loader in CLI commands
-- [x] Search API provider status diagnostics in `agent doctor`
-- [x] 17 Executable Examples and 61 automated unit/integration tests with 100% pass rate
-- [x] 100% Backward Compatibility
-
-### Roadmap for v0.3.0:
-- [ ] Native streaming responses for interactive CLI sessions
-- [ ] Language Server Protocol (LSP) for VS Code and Antigravity IDE
-- [ ] Persistent vector memory integration (embeddings & semantic search)
-- [ ] Distributed Agent Runtime over WebSockets / gRPC
-
----
-
-## 9. License
-
-AgentLang is released under the [MIT License](LICENSE).
+AgentLang is licensed under the [MIT License](LICENSE).

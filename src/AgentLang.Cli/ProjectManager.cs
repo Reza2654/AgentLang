@@ -243,4 +243,45 @@ public static class ProjectManager
         Directory.CreateDirectory(targetDir);
         ZipFile.ExtractToDirectory(packageFile, targetDir, overwriteFiles: true);
     }
+
+    public static (string DockerfilePath, string DockerignorePath) GenerateDockerFiles(string projectDirectory, string entrypoint = "main.agt")
+    {
+        string dockerfile = $"""
+            # AgentLang Micro-Agent Container
+            # Multi-stage ultra-lightweight deployment image
+            FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+            WORKDIR /app
+
+            # Copy project files
+            COPY . .
+
+            # Runtime runner image
+            FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine AS runtime
+            WORKDIR /agent
+
+            ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+            ENV AGENTLANG_ENV=production
+
+            COPY . .
+
+            ENTRYPOINT ["dotnet", "run", "--project", "src/AgentLang.Cli", "--", "run", "{entrypoint}"]
+            """;
+
+        string dockerignore = """
+            .git
+            .vs
+            bin/
+            obj/
+            *.agtpkg
+            *.log
+            """;
+
+        string dockerfilePath = Path.Combine(projectDirectory, "Dockerfile");
+        string dockerignorePath = Path.Combine(projectDirectory, ".dockerignore");
+
+        File.WriteAllText(dockerfilePath, dockerfile);
+        File.WriteAllText(dockerignorePath, dockerignore);
+
+        return (dockerfilePath, dockerignorePath);
+    }
 }
