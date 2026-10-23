@@ -80,6 +80,7 @@ public sealed class AgentLangRuntime
     public IReadOnlyDictionary<string, McpDeclarationNode> McpDefs => _mcpDefs;
     public IReadOnlyDictionary<string, CustomApiDeclarationNode> CustomApiDefs => _customApiDefs;
     public IReadOnlyDictionary<string, AgentValue> AgentInstances => _agentInstances;
+    public void RegisterAgent(AgentValue agent) => _agentInstances[agent.Name] = agent;
     public IReadOnlyDictionary<string, SwarmDeclarationNode> SwarmDefs => _swarmDefs;
     public IReadOnlyDictionary<string, MultiAgentDeclarationNode> MultiAgentDefs => _multiAgentDefs;
     public RuntimeScope GlobalScope => _globalScope;

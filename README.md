@@ -1,19 +1,19 @@
-# AgentLang — v0.6.4
+# AgentLang — v0.6.5
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.4-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-125%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.6.5-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-151%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
 ## 🌟 What is AgentLang?
 
-**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Goal-Oriented Reasoning**, and **Enterprise Guardrails** first-class language primitives.
+**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Model Context Protocol (MCP)**, **Resumable Checkpoints**, **Goal-Oriented Reasoning**, and **Enterprise Guardrails** first-class language primitives.
 
 Instead of writing hundreds of lines of fragile glue code in Python or TypeScript with string-interpolated prompts and unverified tool calls, AgentLang provides a **deterministic, compiler-checked, sandboxed DSL** with native file extension **`.agt`**.
 
@@ -29,6 +29,7 @@ Instead of writing hundreds of lines of fragile glue code in Python or TypeScrip
             │  • Memory & VectorStore │
             │  • Guardrails & Budget  │
             │  • Modular Imports      │
+            │  • Swarm & Consensus    │
             └────────────┬────────────┘
                          ↓
             ┌─────────────────────────┐
@@ -38,7 +39,10 @@ Instead of writing hundreds of lines of fragile glue code in Python or TypeScrip
             │  • Cycle Count Limits   │
             │  • Actor Model & Mailbox│
             │  • Context Compactor    │
-            │  • Tool Scheduler       │
+            │  • Tool Rate Limiter    │
+            │  • MCP Client & Server  │
+            │  • State Checkpointing  │
+            │  • OpenTelemetry Tracing│
             └─────────────────────────┘
 ```
 
@@ -256,11 +260,58 @@ agent build app.agt --target ts       # Emits TypeScript code for Vercel AI SDK
 
 ---
 
+### 12. Model Context Protocol (MCP) Client & Server
+AgentLang provides native, standard-compliant Model Context Protocol (JSON-RPC 2.0) support:
+- **`McpClient`**: Connect to external tool servers, discover tools dynamically (`tools/list`), and automatically bridge them into the agent tool registry (`mcp__<tool>`).
+- **`McpServer`**: Run AgentLang as an MCP server over stdio, exposing your agents and workflows to Claude Desktop, Antigravity, or Cursor:
+```bash
+agent serve --mcp
+```
+
+---
+
+### 13. Resumable State Checkpointing & Time-Travel Debugging
+Long-running and human-in-the-loop workflows can be checkpointed and resumed across crashes or machine reboots:
+- **`ExecutionCheckpoint`**: Snapshots variables, step indexes, agent conversation memories, and statuses.
+- **Storage**: `FileCheckpointStore` persists `.agtchk` JSON checkpoints under `.agent/checkpoints/`.
+```bash
+agent checkpoint list
+agent checkpoint show <id>
+```
+
+---
+
+### 14. Swarm Protocols, Consensus Voting & Multi-Agent Debate
+- **Dynamic Handoffs**: Transfer tasks between specialized agents with `ReturnOnComplete` synthesis.
+- **Consensus Engine**: Multi-agent voting tally using `Majority`, `Weighted`, or `Unanimous` consensus.
+- **Debate Protocol**: Multi-turn debates between opposing agents (e.g. Architect vs Pragmatist) with judge evaluation.
+
+---
+
+### 15. Distributed OpenTelemetry Tracing & Observability
+W3C `traceparent` context propagation across agents, actor mailboxes, and tool calls. Visualize execution trees directly in the terminal:
+```bash
+agent run app.agt --trace
+```
+```text
+[Trace: 88d6ba92f7123fb992a7bc07466f2661] Total: 67.7ms | Tokens: 484 | Cost: $0.0073
+└── vm.program.execute [67.7ms]
+    ├── agent.solve:ResearchAssistant [0.9ms] (120 tokens)
+    ├── agent.solve:Writer [0.0ms] (120 tokens)
+    ├── agent.solve:TechLead [0.0ms] (120 tokens)
+    └── agent.solve:Developer [0.0ms] (124 tokens)
+```
+JSON traces are automatically exported to `.agent/traces/{traceId}.json`.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `agent run <file>` | Execute an AgentLang script (`.agt` or `.agent`) |
+| `agent run <file> [--trace]` | Execute an AgentLang script (`.agt` / `.agent`) with optional OpenTelemetry tracing |
+| `agent serve --mcp` | Start standard Model Context Protocol (MCP) server over stdio |
+| `agent checkpoint [list\|show]`| Inspect and list persistent workflow execution checkpoints |
 | `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
 | `agent repl` | Launch interactive REPL environment |
 | `agent check [file]` | Static syntax and semantic verification |
@@ -277,14 +328,16 @@ agent build app.agt --target ts       # Emits TypeScript code for Vercel AI SDK
 
 ## 🧪 Testing & Verification
 
-The test suite contains **125 automated unit and integration tests** with a **100% pass rate**:
+The test suite contains **151 automated tests (133 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
+dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj --no-build
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 125, Skipped: 0, Total: 125, Duration: 643 ms
+Passed!  - Failed: 0, Passed: 133, Skipped: 0, Total: 133, Duration: 1 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 520 ms - AgentLang.IntegrationTests.dll (net10.0)
 ```
 
 ---

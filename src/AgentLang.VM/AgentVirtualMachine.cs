@@ -4,8 +4,12 @@ using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Runtime.Values;
 using AgentLang.VM.Actors;
+using AgentLang.VM.Checkpointing;
+using AgentLang.VM.MCP;
+using AgentLang.VM.Observability;
 using AgentLang.VM.Optimization;
 using AgentLang.VM.Scheduling;
+using AgentLang.VM.Swarm;
 
 namespace AgentLang.VM;
 
@@ -16,6 +20,11 @@ public sealed class AgentVirtualMachine
     public AgentActorSystem ActorSystem { get; } = new();
     public TokenCache Cache { get; } = new();
     public ToolScheduler Scheduler { get; } = new();
+    public CheckpointManager Checkpoints { get; } = new();
+    public TraceManager Tracer { get; } = new();
+    public SwarmHandoffRouter SwarmRouter => _swarmRouter ??= new SwarmHandoffRouter(Runtime);
+    private SwarmHandoffRouter? _swarmRouter;
+
     public long CyclesExecuted { get; private set; }
     public string Status { get; private set; } = "Ready";
 
@@ -57,11 +66,22 @@ public sealed class AgentVirtualMachine
             Status = "Halted:SandboxViolation";
             throw new VmSandboxViolationException(capability);
         };
+
+        Runtime.ReActEngine.OnExecutionCompleted = (agentName, input, tokens, cost) =>
+        {
+            using var agentSpan = Tracer.StartSpan($"agent.solve:{agentName}");
+            agentSpan.SetAttribute("agent.name", agentName);
+            agentSpan.SetAttribute("agent.input", input);
+            agentSpan.RecordTokens(tokens / 2, tokens / 2, cost);
+        };
     }
 
     public async Task ExecuteAsync(string sourceCode, string filePath = "<vm>", CancellationToken ct = default)
     {
         Status = "Running";
+        using var span = Tracer.StartSpan($"vm.execute:{Path.GetFileName(filePath)}");
+        span.SetAttribute("file.path", filePath);
+
         using var cts = Options.ExecutionTimeout.HasValue
             ? CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(Options.ExecutionTimeout.Value).Token)
             : null;
@@ -78,20 +98,24 @@ public sealed class AgentVirtualMachine
             Runtime.CurrentSourceFile = filePath;
             await Runtime.ExecuteProgramAsync(program, effectiveToken);
             Status = "Completed";
+            span.SetAttribute("cycles", CyclesExecuted);
         }
-        catch (VmCycleLimitExceededException)
+        catch (VmCycleLimitExceededException ex)
         {
             Status = "Halted:CycleLimitExceeded";
+            span.SetError(ex.Message);
             throw;
         }
-        catch (VmSandboxViolationException)
+        catch (VmSandboxViolationException ex)
         {
             Status = "Halted:SandboxViolation";
+            span.SetError(ex.Message);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             if (Status == "Running") Status = "Faulted";
+            span.SetError(ex.Message);
             throw;
         }
     }
@@ -99,6 +123,9 @@ public sealed class AgentVirtualMachine
     public async Task ExecuteAsync(ProgramNode program, CancellationToken ct = default)
     {
         Status = "Running";
+        using var span = Tracer.StartSpan("vm.program.execute");
+        span.SetAttribute("program.declarations", program.Declarations.Count);
+
         using var cts = Options.ExecutionTimeout.HasValue
             ? CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(Options.ExecutionTimeout.Value).Token)
             : null;
@@ -108,20 +135,24 @@ public sealed class AgentVirtualMachine
         {
             await Runtime.ExecuteProgramAsync(program, effectiveToken);
             Status = "Completed";
+            span.SetAttribute("cycles", CyclesExecuted);
         }
-        catch (VmCycleLimitExceededException)
+        catch (VmCycleLimitExceededException ex)
         {
             Status = "Halted:CycleLimitExceeded";
+            span.SetError(ex.Message);
             throw;
         }
-        catch (VmSandboxViolationException)
+        catch (VmSandboxViolationException ex)
         {
             Status = "Halted:SandboxViolation";
+            span.SetError(ex.Message);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             if (Status == "Running") Status = "Faulted";
+            span.SetError(ex.Message);
             throw;
         }
     }

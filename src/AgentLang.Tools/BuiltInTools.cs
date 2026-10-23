@@ -238,7 +238,8 @@ public sealed class CalculatorTool : ITool
 
     public Task<ToolResult> ExecuteAsync(string capability, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
     {
-        string expr = arguments.TryGetValue("expr", out var e) ? e?.ToString() ?? "" : "";
+        string expr = arguments.TryGetValue("expr", out var e) ? e?.ToString() ?? "" :
+                      arguments.TryGetValue("expression", out var exp) ? exp?.ToString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(expr))
             return Task.FromResult(ToolResult.Ok("0"));
 

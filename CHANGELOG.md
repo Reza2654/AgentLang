@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.5] — 2026-10-23
+
+### Added
+- **Native Model Context Protocol (MCP) Client & Server (`AgentLang.VM.MCP`)**:
+  - `McpClient`: Connect to external MCP tool servers via JSON-RPC 2.0 (stdio streams and in-memory test transports).
+  - Protocol handshake (`initialize`, `notifications/initialized`, protocol version `2024-11-05`).
+  - Tool discovery (`tools/list`), tool invocation (`tools/call`), resource listing and reading (`resources/list`, `resources/read`).
+  - `McpToolBridge`: Seamlessly bridges external MCP tools directly into AgentLang's native `ToolRegistry`.
+  - `McpServer`: Expose AgentLang agents and tools as a standard MCP server over stdio (`agent serve --mcp`), allowing Claude Desktop, Antigravity, or Cursor to use AgentLang agents directly as MCP tools.
+- **Resumable State Checkpointing & Time-Travel Store (`AgentLang.VM.Checkpointing`)**:
+  - `ExecutionCheckpoint`: Complete serializable snapshot of runtime variables, step indexes, agent conversation memories, and execution status (`Active`, `PausedWaitingApproval`, `Completed`, `Failed`).
+  - `ICheckpointStore`: Storage backends including `MemoryCheckpointStore` and `FileCheckpointStore` persisting `.agtchk` JSON files under `.agent/checkpoints/`.
+  - `CheckpointManager`: Checkpoint creation, listing, and state restoration into virtual machine instances (`RestoreCheckpointAsync`).
+  - CLI command: `agent checkpoint [list | show <id>]`.
+- **Multi-Agent Swarm Protocols & Consensus Engines (`AgentLang.VM.Swarm`)**:
+  - `SwarmHandoffRouter`: Contextual task delegation between agents with return-on-completion synthesis (`ReturnOnComplete`).
+  - `AgentConsensusEngine`: Multi-agent voting tally with `VotingStrategy` (`Majority`, `Weighted`, `Unanimous`) and threshold validation.
+  - `DebateEngine`: Multi-round structured debates between opposing agents with moderator/judge final verdict synthesis.
+- **Distributed Tracing & OpenTelemetry Observability (`AgentLang.VM.Observability`)**:
+  - `TraceContext`: W3C TraceContext compliant (`00-{traceId}-{spanId}-{flags}`) with automatic parent-child propagation via `AsyncLocal`.
+  - `AgentSpan`: Records span lifecycle, duration, prompt/completion token usage, and cost in USD.
+  - Exporters: `ConsoleTraceExporter` (colored ASCII execution tree) and `JsonTraceExporter` (OpenTelemetry-compliant JSON files under `.agent/traces/`).
+  - CLI flag: `agent run <file.agt> --trace` to visualize real-time span execution trees.
+- **Testing**:
+  - Added `V065Tests.cs` (8 comprehensive tests covering MCP client/server, checkpointing, swarm handoffs, consensus voting, debate protocol, and distributed tracing). Total: 133 unit tests + 18 integration tests = 151 tests (100% pass rate).
+
+---
+
 ## [0.6.4] — 2026-10-22
 
 ### Added

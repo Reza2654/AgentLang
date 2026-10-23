@@ -43,4 +43,5 @@ Thumbs.db
 
 # AgentLang runtime persistent memory store
 .agentlang/
+.agent/
 

@@ -4,12 +4,16 @@ using AgentLang.Runtime;
 using AgentLang.Semantic;
 using AgentLang.Security;
 using AgentLang.Transpiler;
+using AgentLang.VM;
+using AgentLang.VM.Checkpointing;
+using AgentLang.VM.MCP;
+using AgentLang.VM.Observability;
 
 namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.4";
+    public const string Version = "0.6.5";
 
     public static async Task<int> Main(string[] args)
     {
@@ -48,6 +52,8 @@ public static class Program
                 "list" => HandleList(args),
                 "pack" => HandlePack(args),
                 "docker" => HandleDocker(args),
+                "serve" => await HandleServeAsync(args),
+                "checkpoint" => await HandleCheckpointAsync(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -85,10 +91,13 @@ public static class Program
         Console.WriteLine("  list                  List project dependencies");
         Console.WriteLine("  pack [dir] [-o <file>] Bundle an Agent project into a distributable .agtpkg archive");
         Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
+        Console.WriteLine("  serve [--mcp]         Start an MCP (Model Context Protocol) server over stdio");
+        Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
         Console.WriteLine("  --yes, -y             Automatically approve operations requiring human approval");
+        Console.WriteLine("  --trace, -t           Record and print distributed OpenTelemetry execution trace tree");
         Console.WriteLine("Flags for 'format':");
         Console.WriteLine("  --write, -w           Write formatted output directly to files");
         Console.WriteLine("  --check, -c           Check if files are formatted without modifying them");
@@ -129,6 +138,7 @@ public static class Program
 
         string filePath = args[1];
         bool autoApprove = args.Any(a => a is "--yes" or "-y");
+        bool enableTrace = args.Any(a => a is "--trace" or "-t");
 
         if (!File.Exists(filePath))
         {
@@ -171,7 +181,19 @@ public static class Program
         var secEngine = new SecurityEngine(approval);
         var runtime = new AgentLangRuntime(securityEngine: secEngine);
 
-        await runtime.ExecuteProgramAsync(program);
+        if (enableTrace)
+        {
+            var vm = new AgentVirtualMachine(runtime: runtime);
+            await vm.ExecuteAsync(program);
+
+            Console.WriteLine();
+            await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+            await vm.Tracer.ExportAsync(new JsonTraceExporter());
+        }
+        else
+        {
+            await runtime.ExecuteProgramAsync(program);
+        }
         return 0;
     }
 
@@ -274,6 +296,60 @@ public static class Program
             Console.ResetColor();
             return 1;
         }
+    }
+
+    private static async Task<int> HandleServeAsync(string[] args)
+    {
+        bool isMcp = args.Any(a => a.Equals("--mcp", StringComparison.OrdinalIgnoreCase)) || args.Length == 1;
+        if (isMcp)
+        {
+            using var transport = new StreamMcpTransport(Console.OpenStandardInput(), Console.OpenStandardOutput(), leaveOpen: true);
+            var server = new McpServer(transport);
+            await server.RunAsync();
+            return 0;
+        }
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("Usage: agent serve --mcp");
+        Console.ResetColor();
+        return 1;
+    }
+
+    private static async Task<int> HandleCheckpointAsync(string[] args)
+    {
+        var store = new FileCheckpointStore();
+        if (args.Length < 2 || args[1] is "list")
+        {
+            var list = await store.ListAsync();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"Found {list.Count} checkpoint(s):");
+            Console.ResetColor();
+
+            foreach (var cp in list)
+            {
+                Console.WriteLine($"  - [{cp.CheckpointId}] {cp.WorkflowName} (Step: {cp.StepIndex}, Status: {cp.Status}, Time: {cp.Timestamp:u})");
+            }
+            return 0;
+        }
+
+        if (args[1] is "show" or "inspect" && args.Length >= 3)
+        {
+            var cp = await store.GetAsync(args[2]);
+            if (cp == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Error: Checkpoint '{args[2]}' not found.");
+                Console.ResetColor();
+                return 1;
+            }
+            Console.WriteLine(cp.ToJson());
+            return 0;
+        }
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("Usage: agent checkpoint [list | show <id>]");
+        Console.ResetColor();
+        return 0;
     }
 
     private static int HandleTranspile(string[] args)

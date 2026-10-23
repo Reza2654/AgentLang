@@ -30,6 +30,8 @@ public sealed class AgentReActEngine
         _eventBus = eventBus;
     }
 
+    public Action<string, string, int, double>? OnExecutionCompleted { get; set; }
+
     public async Task<AgentReActResult> SolveAsync(
         AgentValue agent,
         string goal,
@@ -161,6 +163,8 @@ Final Answer: <your final response>
                 }
 
                 sw.Stop();
+                int estTokens = Math.Max(120, (role.Length + instructions.Length + input.Length + (finalAnswer?.Length ?? 0)) / 4);
+                OnExecutionCompleted?.Invoke(agent.Name, input, estTokens, 0.000015 * estTokens);
                 return new AgentReActResult(true, finalAnswer, steps, sw.Elapsed);
             }
 
@@ -173,6 +177,8 @@ Final Answer: <your final response>
                 steps.Add(new ReActStep(stepIndex, "Direct response produced without tool action.", null, null, null));
                 if (isChat) agent.History.Add(new ChatMessage("assistant", directAnswer));
                 sw.Stop();
+                int estTokens = Math.Max(120, (role.Length + instructions.Length + input.Length + directAnswer.Length) / 4);
+                OnExecutionCompleted?.Invoke(agent.Name, input, estTokens, 0.000015 * estTokens);
                 return new AgentReActResult(true, directAnswer, steps, sw.Elapsed);
             }
 
