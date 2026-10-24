@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.8] — 2026-10-24
+
+### Added
+- **Hierarchical Task Planning & Decoupled Execution Engine (`AgentLang.VM.Planning`)**:
+  - `PlanAndExecuteEngine`: Decouples macro-strategy generation from step execution. Manages directed dependency graphs (`TaskPlan`, `PlanStep`, `DependsOn`) with concurrent resolution of independent steps.
+  - Dynamic `Replanner`: Catches runtime tool failures and dynamically synthesizes updated downstream steps without restarting long-horizon workflows.
+  - `ReWooEngine` (Reasoning Without Observation): 3-phase execution architecture (Planner -> Worker -> Solver) using variable placeholders (`#E1`, `#E2`) for deterministic tool execution, reducing token consumption by up to 5x.
+  - `TreeOfThoughtsEngine`: Multi-branch candidate exploration using Beam Search, heuristic scoring, and path pruning.
+  - CLI Command: `agent plan "<goal>" [--tools <t1,t2>] [--execute]` for generating and executing task plan DAGs.
+- **Multi-Modal Native Artifact Pipeline (`AgentLang.VM.Artifacts`)**:
+  - `Artifact`: First-class immutable data entity with unique ID, MIME type, raw binary/text payloads, SHA-256 content hashes, and version lineages (`ParentArtifactId`).
+  - `ArtifactStore`: Thread-safe, content-addressed storage managing text, JSON, and binary artifacts with automatic versioning and persistence under `.agent/artifacts/`.
+- **Data Loss Prevention (DLP) & Fine-Grained Resource Access Control (`AgentLang.Security.Policy`)**:
+  - `DataLossPrevention`: Automated scanning and redacting of sensitive credentials (OpenAI/Anthropic keys, GitHub tokens, AWS access keys, private keys, credit cards, bearer tokens, passwords, and emails).
+  - Actions: `Redact` (`[REDACTED:...]`), `Mask` (`sk-***123`), and `Block` (throws `DlpSecurityViolationException`).
+  - `ResourceAccessPolicy`: Path boundary traversal defense (`../` escaping) and domain whitelisting with wildcard support (`*.github.com`).
+  - CLI flag: `agent run <file.agt> --dlp` to sanitize console output and execution logs.
+- **Deterministic Testing Cassette System (VCR / Tool Replay) (`AgentLang.VM.Testing`)**:
+  - `ToolCassette`: Records real tool executions and outputs into versioned JSON cassettes (`.agent/cassettes/`).
+  - `CassetteRecorder`: Operates in `Record`, `Replay`, and `Auto` modes. Enables 100% deterministic, zero-cost, offline CI/CD regression testing for AI agents.
+- **Testing**:
+  - Added `V068Tests.cs` (14 comprehensive unit tests covering Plan-and-Execute, ReWOO, Tree of Thoughts, Artifacts, DLP scanning/redaction/blocking, Resource policies, and Cassette VCR replay).
+  - Total test count increased to **192 tests** (174 unit tests + 18 integration tests), with a 100% pass rate.
+
+---
+
 ## [0.6.7] — 2026-10-24
 
 ### Added

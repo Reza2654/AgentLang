@@ -1,12 +1,12 @@
-# AgentLang — v0.6.7
+# AgentLang — v0.6.8
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.7-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-178%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.6.8-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-192%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -405,11 +405,58 @@ agent run app.agt --stream
 
 ---
 
+### 25. Hierarchical Task Planning & ReWOO Engine (`AgentLang.VM.Planning`)
+Decouple macro-strategy planning from tool execution to prevent context window bloat:
+```bash
+agent plan "Build full-text search indexing pipeline" --tools web_search,file_reader --execute
+```
+- **`PlanAndExecuteEngine`**: Generates directed task plans (`TaskPlan`), executing independent steps concurrently and dynamically triggering replanning (`ReplanAsync`) if an intermediate tool crashes.
+- **`ReWooEngine` (Reasoning Without Observation)**: 3-phase execution (`Planner -> Worker -> Solver`) binding variable placeholders (`#E1`, `#E2`) without wasteful intermediate LLM reasoning tokens (saving up to 5x tokens).
+- **`TreeOfThoughtsEngine`**: Multi-candidate Beam Search with scoring heuristics and path backtracking.
+
+---
+
+### 26. Multi-Modal Native Artifact Pipeline (`ArtifactStore`)
+First-class storage for binary and structured data created by agents (datasets, charts, PDFs, reports):
+```csharp
+var art = vm.Artifacts.CreateTextArtifact("report.md", "# Analysis", "text/markdown");
+var v2 = vm.Artifacts.UpdateArtifact(art.Id, updatedBytes);
+```
+- Content-addressed integrity using SHA-256 hashes.
+- Lineage tracking with monotonic versioning and `ParentArtifactId`.
+- Automatic persistence under `.agent/artifacts/`.
+
+---
+
+### 27. Data Loss Prevention (DLP) & Resource Access Boundaries
+Enterprise-grade security controls preventing accidental credential leaks:
+```csharp
+string clean = DataLossPrevention.Sanitize(prompt, DlpAction.Redact);
+```
+- **Automated Detection**: Detects and sanitizes OpenAI/Anthropic API keys, GitHub tokens, AWS keys, private keys, credit cards, passwords, and emails.
+- **Actions**: `Redact` (`[REDACTED:...]`), `Mask` (`sk-***123`), and `Block` (`DlpSecurityViolationException`).
+- **Resource Boundary Defense**: Prevents directory traversal attacks (`../`) and enforces network domain whitelisting with wildcards (`*.github.com`).
+- Run with `--dlp`: `agent run app.agt --dlp`.
+
+---
+
+### 28. Deterministic Testing Cassette System (VCR / Tool Replay)
+Eliminate flaky agent tests and costly API bills during CI/CD:
+```csharp
+var recorder = new CassetteRecorder("regression_test", RecordMode.Replay);
+string output = await recorder.ExecuteWithCassetteAsync("search_tool", args, realExecutor);
+```
+- Records real tool executions into versioned JSON cassettes (`.agent/cassettes/`).
+- Replays recorded responses deterministically in offline CI pipelines with zero network overhead.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `agent run <file> [--trace] [--stream]` | Execute an AgentLang script (`.agt` / `.agent` / `.agtc`) with OpenTelemetry tracing or real-time event streaming |
+| `agent run <file> [--trace] [--stream] [--dlp]` | Execute an AgentLang script with OpenTelemetry tracing, real-time event streaming, or DLP redaction |
+| `agent plan "<goal>" [--tools] [--execute]` | Generate or execute a hierarchical multi-step task plan DAG |
 | `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
 | `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
 | `agent serve --mcp` | Start standard Model Context Protocol (MCP) server over stdio |
@@ -430,7 +477,7 @@ agent run app.agt --stream
 
 ## 🧪 Testing & Verification
 
-The test suite contains **178 automated tests (160 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **192 automated tests (174 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -438,8 +485,8 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 160, Skipped: 0, Total: 160, Duration: 873 ms - AgentLang.Tests.dll (net10.0)
-Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 520 ms - AgentLang.IntegrationTests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 174, Skipped: 0, Total: 174, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 
 ---

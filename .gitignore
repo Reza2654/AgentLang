@@ -25,7 +25,7 @@ bld/
 # Dotnet CLI
 project.lock.json
 project.fragment.lock.json
-artifacts/
+/artifacts/
 
 # Test results
 TestResults/

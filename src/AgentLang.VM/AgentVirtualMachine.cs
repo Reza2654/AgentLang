@@ -3,7 +3,9 @@ using AgentLang.Lexer;
 using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Runtime.Values;
+using AgentLang.Security.Policy;
 using AgentLang.VM.Actors;
+using AgentLang.VM.Artifacts;
 using AgentLang.VM.Bytecode;
 using AgentLang.VM.Checkpointing;
 using AgentLang.VM.Eval;
@@ -12,11 +14,13 @@ using AgentLang.VM.MCP;
 using AgentLang.VM.Memory;
 using AgentLang.VM.Observability;
 using AgentLang.VM.Optimization;
+using AgentLang.VM.Planning;
 using AgentLang.VM.Resilience;
 using AgentLang.VM.Schemas;
 using AgentLang.VM.Scheduling;
 using AgentLang.VM.Streaming;
 using AgentLang.VM.Swarm;
+using AgentLang.VM.Testing;
 
 namespace AgentLang.VM;
 
@@ -39,6 +43,12 @@ public sealed class AgentVirtualMachine
     public AutoRemediator Remediator { get; } = new();
     public AgentBenchmarkRunner Evaluator { get; } = new();
     public EntityGraphMemory EntityMemory { get; } = new();
+    public ArtifactStore Artifacts { get; } = new();
+    public PlanAndExecuteEngine Planner { get; } = new();
+    public ReWooEngine ReWoo { get; } = new();
+    public TreeOfThoughtsEngine TreeOfThoughts { get; } = new();
+    public ResourceAccessPolicy ResourcePolicy { get; } = new();
+    public CassetteRecorder CassetteRecorder { get; set; } = new();
 
     public StateGraph CreateStateGraph(string name = "StateGraph") => new(name);
     public StateGraph<TState> CreateStateGraph<TState>(string name = "StateGraph") => new(name);

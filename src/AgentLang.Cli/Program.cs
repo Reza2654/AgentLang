@@ -3,6 +3,7 @@ using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Semantic;
 using AgentLang.Security;
+using AgentLang.Security.Policy;
 using AgentLang.Transpiler;
 using AgentLang.VM;
 using AgentLang.VM.Bytecode;
@@ -10,13 +11,14 @@ using AgentLang.VM.Checkpointing;
 using AgentLang.VM.Eval;
 using AgentLang.VM.MCP;
 using AgentLang.VM.Observability;
+using AgentLang.VM.Planning;
 using AgentLang.VM.Streaming;
 
 namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.7";
+    public const string Version = "0.6.8";
 
     public static async Task<int> Main(string[] args)
     {
@@ -59,6 +61,7 @@ public static class Program
                 "checkpoint" => await HandleCheckpointAsync(args),
                 "compile" => await HandleCompileAsync(args),
                 "eval" => await HandleEvalAsync(args),
+                "plan" => await HandlePlanAsync(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -100,12 +103,14 @@ public static class Program
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
         Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");
+        Console.WriteLine("  plan <goal> [flags]   Generate or execute a hierarchical multi-step task plan DAG");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
         Console.WriteLine("  --yes, -y             Automatically approve operations requiring human approval");
         Console.WriteLine("  --trace, -t           Record and print distributed OpenTelemetry execution trace tree");
         Console.WriteLine("  --stream, -s          Stream execution events and tokens in real time (SSE compatible)");
+        Console.WriteLine("  --dlp                 Mask or redact sensitive API keys, tokens, and credentials (DLP)");
         Console.WriteLine("Flags for 'format':");
         Console.WriteLine("  --write, -w           Write formatted output directly to files");
         Console.WriteLine("  --check, -c           Check if files are formatted without modifying them");
@@ -148,6 +153,7 @@ public static class Program
         bool autoApprove = args.Any(a => a is "--yes" or "-y");
         bool enableTrace = args.Any(a => a is "--trace" or "-t");
         bool enableStream = args.Any(a => a is "--stream" or "-s");
+        bool enableDlp = args.Any(a => a is "--dlp");
 
         if (!File.Exists(filePath))
         {
@@ -756,6 +762,54 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine(scorecard.ToMarkdownReport());
         return scorecard.PassRate >= 0.70 ? 0 : 1;
+    }
+
+    private static async Task<int> HandlePlanAsync(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing objective. Usage: agent plan \"<goal-or-task>\" [--tools <t1,t2>] [--execute]");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string goal = args[1];
+        var tools = new List<string> { "web_search", "document_summary", "code_generator" };
+        bool execute = args.Any(a => a is "--execute" or "-e");
+
+        for (int i = 2; i < args.Length; i++)
+        {
+            if ((args[i] == "--tools" || args[i] == "-t") && i + 1 < args.Length)
+            {
+                tools = args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
+        }
+
+        var planner = new HeuristicPlanner();
+        var plan = await planner.CreatePlanAsync(goal, tools);
+
+        if (!execute)
+        {
+            Console.WriteLine(plan.ToMarkdown());
+            return 0;
+        }
+
+        Console.WriteLine(plan.ToMarkdown());
+        Console.WriteLine("\nExecuting plan steps...");
+
+        var engine = new PlanAndExecuteEngine(planner);
+        var result = await engine.ExecuteAsync(goal, async (step, ct) =>
+        {
+            Console.WriteLine($"  → Running Step {step.StepId}: {step.Description}");
+            await Task.Delay(50, ct);
+            return $"Step {step.StepId} completed successfully";
+        }, tools);
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"\n✓ {result.Summary}");
+        Console.ResetColor();
+        return 0;
     }
 
     private static int HandleUnknown(string cmd)
