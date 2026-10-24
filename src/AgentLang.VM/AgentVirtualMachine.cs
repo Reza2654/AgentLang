@@ -7,12 +7,15 @@ using AgentLang.VM.Actors;
 using AgentLang.VM.Bytecode;
 using AgentLang.VM.Checkpointing;
 using AgentLang.VM.Eval;
+using AgentLang.VM.Graphs;
 using AgentLang.VM.MCP;
 using AgentLang.VM.Memory;
 using AgentLang.VM.Observability;
 using AgentLang.VM.Optimization;
 using AgentLang.VM.Resilience;
+using AgentLang.VM.Schemas;
 using AgentLang.VM.Scheduling;
+using AgentLang.VM.Streaming;
 using AgentLang.VM.Swarm;
 
 namespace AgentLang.VM;
@@ -35,6 +38,10 @@ public sealed class AgentVirtualMachine
     public SemanticPromptCache SemanticCache { get; } = new();
     public AutoRemediator Remediator { get; } = new();
     public AgentBenchmarkRunner Evaluator { get; } = new();
+    public EntityGraphMemory EntityMemory { get; } = new();
+
+    public StateGraph CreateStateGraph(string name = "StateGraph") => new(name);
+    public StateGraph<TState> CreateStateGraph<TState>(string name = "StateGraph") => new(name);
 
     public long CyclesExecuted { get; private set; }
     public string Status { get; private set; } = "Ready";
@@ -128,6 +135,40 @@ public sealed class AgentVirtualMachine
             if (Status == "Running") Status = "Faulted";
             span.SetError(ex.Message);
             throw;
+        }
+    }
+
+    public async Task<string> StreamExecuteAsync(
+        string sourceCode,
+        AgentStreamChannel streamChannel,
+        string filePath = "<vm-stream>",
+        CancellationToken ct = default)
+    {
+        await streamChannel.EmitStatusChangeAsync("Initializing", "VM", ct);
+        using var span = Tracer.StartSpan($"vm.stream.execute:{Path.GetFileName(filePath)}");
+
+        Action<StatementNode, RuntimeScope>? prevStep = Runtime.StepHook;
+        Runtime.StepHook = (stmt, scope) =>
+        {
+            prevStep?.Invoke(stmt, scope);
+            _ = streamChannel.EmitThoughtAsync($"Step [{stmt.Span.Start.Line}]: {stmt.GetType().Name}", "Runtime", ct);
+        };
+
+        try
+        {
+            await ExecuteAsync(sourceCode, filePath, ct);
+            await streamChannel.EmitCompleteAsync("Execution completed successfully.", CyclesExecuted, 0, "VM", ct);
+            return "Completed";
+        }
+        catch (Exception ex)
+        {
+            await streamChannel.EmitErrorAsync(ex.Message, "VM", ct);
+            throw;
+        }
+        finally
+        {
+            Runtime.StepHook = prevStep;
+            streamChannel.Complete();
         }
     }
 

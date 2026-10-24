@@ -1,12 +1,12 @@
-# AgentLang — v0.6.6
+# AgentLang — v0.6.7
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.6-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-159%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.6.7-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-178%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -351,11 +351,65 @@ Instantly converts OpenAPI 3.0 path endpoints into first-class callable AgentLan
 
 ---
 
+### 21. State Graph Orchestration (`StateGraph`) & Cyclic Workflows
+Model complex multi-agent reasoning, iterative loops, and branch transitions as state graphs:
+```csharp
+var graph = new StateGraph("CustomerSupportPipeline");
+graph.AddNode("triage", async (state, ct) => { ... });
+graph.AddNode("billingHandler", async (state, ct) => { ... });
+graph.AddConditionalEdge("triage", state => (string)state["intent"]);
+graph.InterruptBefore("billingHandler"); // Human-in-the-loop review
+graph.SetEntryPoint("triage");
+var compiled = graph.Compile();
+```
+- **Cycle Safety**: Guards against runaway infinite execution with `MaxCycles`.
+- **Fan-Out & Fan-In**: Parallel branch execution with custom state reducers.
+- **Human-in-the-Loop (HITL)**: `InterruptBefore` and `InterruptAfter` allow inspection and state mutation before resuming with `ResumeAsync`.
+- **Mermaid Export**: `graph.ToMermaid()` generates interactive flowcharts.
+
+---
+
+### 22. Episodic & Entity Graph Memory (`EntityGraphMemory`)
+GraphRAG / Mem0-style long-term memory capturing knowledge relations:
+- Stores entities, attributes, relations `(Source, Relation, Target)`, and episodic interaction history.
+- **Auto Fact Extraction**: Extracts relationships from conversation text (e.g. `Reza created AgentLang`).
+- **Contextual Recall**: `RecallContext(query)` dynamically recalls relevant entity relationships and injects structured context into agent prompts.
+- **Multi-Hop Subgraph Traversals**: Explores connected entity subgraphs up to configurable depths.
+
+---
+
+### 23. Strict Structured Schema Engine & Auto-Repair (`StructuredSchema`)
+Guarantees typed, schema-compliant JSON outputs from LLMs:
+```csharp
+var schema = SchemaBuilder.Create("AuditReport")
+    .AddString("title", required: true)
+    .AddInteger("vulnerabilitiesFound", required: true, min: 0)
+    .AddArray("cveList", SchemaType.String)
+    .Build();
+
+var result = StructuredOutputParser.Validate(llmOutput, schema);
+```
+- Compiles standard JSON Schema Draft 2020-12 specifications (`ToJsonSchema()`).
+- `AutoRepair` self-corrects malformed LLM outputs (fixes unquoted keys, single quotes, trailing commas, and unclosed braces/brackets).
+
+---
+
+### 24. Streaming Protocol & Real-Time Event Engine
+Real-time token and lifecycle event streaming with W3C Server-Sent Events (SSE) support:
+```bash
+agent run app.agt --stream
+```
+- Emits real-time tokens, chain-of-thought steps, tool execution start/results, and status changes.
+- Backpressure-managed asynchronous channels (`AgentStreamChannel`).
+- Standard SSE format (`ToSseString()`) for plug-and-play web client integration.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `agent run <file> [--trace]` | Execute an AgentLang script (`.agt` / `.agent` / `.agtc`) with optional OpenTelemetry tracing |
+| `agent run <file> [--trace] [--stream]` | Execute an AgentLang script (`.agt` / `.agent` / `.agtc`) with OpenTelemetry tracing or real-time event streaming |
 | `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
 | `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
 | `agent serve --mcp` | Start standard Model Context Protocol (MCP) server over stdio |
@@ -376,7 +430,7 @@ Instantly converts OpenAPI 3.0 path endpoints into first-class callable AgentLan
 
 ## 🧪 Testing & Verification
 
-The test suite contains **159 automated tests (141 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **178 automated tests (160 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -384,7 +438,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 141, Skipped: 0, Total: 141, Duration: 707 ms - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 160, Skipped: 0, Total: 160, Duration: 873 ms - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 520 ms - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

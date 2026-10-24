@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.7] — 2026-10-24
+
+### Added
+- **Graph-Based Workflow Orchestration (`AgentLang.VM.Graphs`)**:
+  - `StateGraph<TState>` & `StateGraph`: Directed state graph execution runtime for building complex multi-step, cyclic, and parallel agent workflows.
+  - Node registration with async cancellation-aware handlers (`AddNode`).
+  - Conditional edge routing with router functions and explicit branch mappings (`AddConditionalEdge`).
+  - Parallel fan-out and fan-in execution with custom join reducers (`AddParallelBranch`).
+  - Cyclic refinement loops with `MaxCycles` safety guards and `StateGraphCycleLimitException` against runaway infinite execution.
+  - Human-in-the-Loop (HITL) checkpoints with `InterruptBefore` and `InterruptAfter`, allowing execution inspection, state modification, and resumption (`ResumeAsync`).
+  - Interactive Mermaid flowchart export (`ToMermaid()`) for direct rendering in documentation and UI.
+- **Episodic & Entity Graph Memory (`AgentLang.VM.Memory`)**:
+  - `EntityGraphMemory`: Knowledge graph memory engine storing entities, attributes, relations (`Source`, `Relation`, `Target`), confidence scores, and episodic interaction history.
+  - Automated natural language relation extraction (`ExtractAndStoreFacts`) identifying concepts and relationships across sentences.
+  - Multi-hop BFS subgraph exploration (`QuerySubgraph`) with configurable traversal depth.
+  - Contextual knowledge recall (`RecallContext`) dynamically synthesizing relevant entity relationships into agent system prompts.
+  - Full JSON persistence with `ExportJson()` and `ImportJson()`.
+- **Strict Structured Schema Engine & Parser (`AgentLang.VM.Schemas`)**:
+  - `StructuredSchema` & `SchemaBuilder`: Fluent API to declare strictly typed output schemas with types (`String`, `Integer`, `Float`, `Boolean`, `Array`, `Object`), constraints (`min`, `max`, `regex`), and descriptions.
+  - Standard JSON Schema compiler (`ToJsonSchema()`) generating Draft 2020-12 specifications for LLM function calling and structured outputs.
+  - `StructuredOutputParser`: Validates raw LLM responses against schemas with markdown code-fence extraction (`ExtractJson`) and constraint checking.
+  - Autonomous `AutoRepair`: Self-corrects common LLM JSON syntax failures (trailing commas, unquoted object keys, single quotes, and missing closing braces/brackets).
+- **Streaming Event Engine & CLI Streaming (`AgentLang.VM.Streaming`)**:
+  - `AgentStreamChannel`: High-throughput async event channel producing `IAsyncEnumerable<AgentStreamEvent>` with backpressure.
+  - Event types: `Token`, `Thought`, `ToolCallStart`, `ToolCallResult`, `NodeTransition`, `StatusChange`, `Error`, and `Complete`.
+  - W3C Server-Sent Events (SSE) compliant formatter (`ToSseString()`).
+  - `AgentVirtualMachine.StreamExecuteAsync`: Real-time streaming execution with step-by-step reasoning emission.
+  - CLI flag: `agent run <file.agt> --stream` (or `-s`) for real-time streaming execution output in terminal and web consoles.
+- **Testing**:
+  - Added `V067Tests.cs` (19 comprehensive unit tests covering StateGraph cycles, branch routing, HITL interrupts, fan-out/fan-in reducers, Mermaid generation, entity extraction, graph recall, schema validation/repair, and streaming events).
+  - Total tests increased to 178 tests (160 unit tests + 18 integration tests), 100% passing.
+
+---
+
 ## [0.6.6] — 2026-10-24
 
 ### Added

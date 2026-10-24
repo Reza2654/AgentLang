@@ -106,8 +106,8 @@ public sealed class AgentActor
                 catch (Exception ex)
                 {
                     LastFault = ex;
-                    message.ResponseTcs?.TrySetException(ex);
                     await System.HandleActorFaultAsync(this, ex);
+                    message.ResponseTcs?.TrySetException(ex);
                 }
             }
             catch (OperationCanceledException)
