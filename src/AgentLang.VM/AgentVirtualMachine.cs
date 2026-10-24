@@ -4,10 +4,14 @@ using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Runtime.Values;
 using AgentLang.VM.Actors;
+using AgentLang.VM.Bytecode;
 using AgentLang.VM.Checkpointing;
+using AgentLang.VM.Eval;
 using AgentLang.VM.MCP;
+using AgentLang.VM.Memory;
 using AgentLang.VM.Observability;
 using AgentLang.VM.Optimization;
+using AgentLang.VM.Resilience;
 using AgentLang.VM.Scheduling;
 using AgentLang.VM.Swarm;
 
@@ -22,8 +26,15 @@ public sealed class AgentVirtualMachine
     public ToolScheduler Scheduler { get; } = new();
     public CheckpointManager Checkpoints { get; } = new();
     public TraceManager Tracer { get; } = new();
+    public BytecodeCompiler Compiler { get; } = new();
+    public BytecodeExecutor BytecodeExecutor => _bytecodeExecutor ??= new BytecodeExecutor(Runtime);
+    private BytecodeExecutor? _bytecodeExecutor;
     public SwarmHandoffRouter SwarmRouter => _swarmRouter ??= new SwarmHandoffRouter(Runtime);
     private SwarmHandoffRouter? _swarmRouter;
+    public HybridVectorStore HybridStore { get; } = new();
+    public SemanticPromptCache SemanticCache { get; } = new();
+    public AutoRemediator Remediator { get; } = new();
+    public AgentBenchmarkRunner Evaluator { get; } = new();
 
     public long CyclesExecuted { get; private set; }
     public string Status { get; private set; } = "Ready";
@@ -152,6 +163,27 @@ public sealed class AgentVirtualMachine
         catch (Exception ex)
         {
             if (Status == "Running") Status = "Faulted";
+            span.SetError(ex.Message);
+            throw;
+        }
+    }
+
+    public async Task<object?> ExecuteBytecodeAsync(AgentBytecodeModule module, CancellationToken ct = default)
+    {
+        Status = "Running";
+        using var span = Tracer.StartSpan($"vm.bytecode.execute:{module.ModuleName}");
+        span.SetAttribute("bytecode.instructions", module.Instructions.Count);
+        span.SetAttribute("bytecode.constants", module.ConstantPool.Count);
+
+        try
+        {
+            var result = await BytecodeExecutor.ExecuteAsync(module, ct);
+            Status = "Completed";
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Status = "Faulted";
             span.SetError(ex.Message);
             throw;
         }

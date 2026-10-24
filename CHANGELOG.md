@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.6] — 2026-10-24
+
+### Added
+- **Bytecode Intermediate Representation (IR) Engine (`AgentLang.VM.Bytecode`)**:
+  - `AgentOpCode`: Full stack-based instruction set (`PushConst`, `LoadVar`, `StoreVar`, `Add`, `Sub`, `Mul`, `Div`, `CompareEq`, `Jump`, `JumpIfTrue`, `JumpIfFalse`, `CallAgent`, `CallTool`, `Print`, `Return`, `Halt`).
+  - `AgentBytecodeModule`: Constant pool, symbol table, instruction stream, and binary `.agtc` serialization (`ToBytes` / `FromBytes`).
+  - `BytecodeCompiler`: Compiles AST (`ProgramNode`) directly into optimized bytecode binaries.
+  - `BytecodeExecutor`: High-speed virtual machine stack execution loop inside `AgentVirtualMachine`.
+  - CLI: `agent compile <file.agt> [-o <out.agtc>]` and direct binary execution `agent run <file.agtc>`.
+- **Hybrid Semantic Search & Semantic Prompt Caching (`AgentLang.VM.Memory`)**:
+  - `HybridVectorStore`: Combines Dense vector embeddings with Sparse lexical search (BM25) using Reciprocal Rank Fusion (RRF).
+  - `SemanticPromptCache`: High-speed fuzzy semantic caching with configurable similarity threshold (default `0.80`), cutting redundant LLM token costs.
+- **Auto-Remediation & Self-Healing Loops (`AgentLang.VM.Resilience`)**:
+  - `AutoRemediator`: Autonomous tool error recovery engine with `RemediationStrategy` (`InitialAttempt`, `RetryWithBackoff`, `FallbackTool`, `ReflectorRepair`).
+  - `SelfHealingPolicy`: Configurable max attempts, tool fallback hierarchies, and argument reflector repair callbacks.
+- **OpenAPI Dynamic Tool Generator (`AgentLang.Tools`)**:
+  - `OpenApiToolGenerator`: Dynamically synthesizes native `CustomApiTool` instances from OpenAPI 3.0 / Swagger JSON specifications and registers them into `ToolRegistry`.
+- **Multi-Agent Evaluation & Benchmark Harness (`AgentLang.VM.Eval`)**:
+  - `BenchmarkDataset`: Test datasets loaded from JSON/JSONL with inputs, expected outputs, expected tool calls, and criteria.
+  - `AgentBenchmarkRunner`: Runs agent evaluation, measures latency, tool call precision, and semantic similarity, producing markdown scorecard reports.
+  - CLI command: `agent eval <file.agt> --dataset <data.json> [--agent <name>]`.
+- **Testing**:
+  - Added `V066Tests.cs` (8 comprehensive tests covering bytecode compilation/execution, hybrid search, semantic caching, auto-remediation, OpenAPI generation, and evaluation). Total: 141 unit tests + 18 integration tests = 159 tests (100% pass rate).
+
+---
+
 ## [0.6.5] — 2026-10-23
 
 ### Added

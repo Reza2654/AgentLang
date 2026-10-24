@@ -1,19 +1,19 @@
-# AgentLang — v0.6.5
+# AgentLang — v0.6.6
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.5-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-151%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.6.6-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-159%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
 ## 🌟 What is AgentLang?
 
-**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Model Context Protocol (MCP)**, **Resumable Checkpoints**, **Goal-Oriented Reasoning**, and **Enterprise Guardrails** first-class language primitives.
+**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Bytecode IR (.agtc)**, **Hybrid Semantic Search**, **Auto-Remediation**, **Model Context Protocol (MCP)**, **Resumable Checkpoints**, and **Enterprise Guardrails** first-class language primitives.
 
 Instead of writing hundreds of lines of fragile glue code in Python or TypeScript with string-interpolated prompts and unverified tool calls, AgentLang provides a **deterministic, compiler-checked, sandboxed DSL** with native file extension **`.agt`**.
 
@@ -30,19 +30,24 @@ Instead of writing hundreds of lines of fragile glue code in Python or TypeScrip
             │  • Guardrails & Budget  │
             │  • Modular Imports      │
             │  • Swarm & Consensus    │
+            │  • OpenAPI Tool Gen     │
             └────────────┬────────────┘
                          ↓
             ┌─────────────────────────┐
             │      AgentLang VM       │
             ├─────────────────────────┤
+            │  • Bytecode Engine (.agtc)
             │  • Sandboxed Execution  │
-            │  • Cycle Count Limits   │
             │  • Actor Model & Mailbox│
             │  • Context Compactor    │
             │  • Tool Rate Limiter    │
             │  • MCP Client & Server  │
             │  • State Checkpointing  │
+            │  • Hybrid BM25 Search   │
+            │  • Semantic Prompt Cache│
+            │  • Self-Healing Loops   │
             │  • OpenTelemetry Tracing│
+            │  • Eval & Benchmarks    │
             └─────────────────────────┘
 ```
 
@@ -305,11 +310,54 @@ JSON traces are automatically exported to `.agent/traces/{traceId}.json`.
 
 ---
 
+### 16. Bytecode Intermediate Representation (IR) & `.agtc` Compilation
+Compile your AgentLang scripts into optimized, distributable stack-based bytecode binaries:
+```bash
+agent compile app.agt -o app.agtc
+agent run app.agtc
+```
+- Faster startup and execution loop bypassing AST re-parsing.
+- Compact binary format with constant pools, symbol tables, and instructions.
+
+---
+
+### 17. Hybrid Semantic Search & Semantic Prompt Caching
+- **`HybridVectorStore`**: Combines Dense Vector Embeddings (cosine similarity) with Sparse Lexical Search (BM25) using **Reciprocal Rank Fusion (RRF)** for state-of-the-art document retrieval.
+- **`SemanticPromptCache`**: Fuzzy semantic caching using cosine similarity threshold (default `0.80`), cutting redundant LLM API calls and costs.
+
+---
+
+### 18. Auto-Remediation & Self-Healing Loops
+Never let a tool or API failure crash your autonomous agents:
+- **`AutoRemediator`**: Executes fallback tool chains (`ToolFallbacks`) or triggers argument reflector repair (`ReflectorRepair`) to fix malformed inputs and retry execution autonomously.
+
+---
+
+### 19. Multi-Agent Evaluation & Benchmark Harness
+Benchmark and evaluate agent accuracy, latency, and tool-calling precision:
+```bash
+agent eval app.agt --dataset test_suite.json --agent ResearchAssistant
+```
+Generates comprehensive Markdown scorecards with pass/fail ratios and regression metrics.
+
+---
+
+### 20. OpenAPI / Swagger Dynamic Tool Generator
+Connect any REST service to AgentLang in seconds:
+```csharp
+OpenApiToolGenerator.RegisterOpenApiIntoRegistry(registry, openApiJson, "stripe_api");
+```
+Instantly converts OpenAPI 3.0 path endpoints into first-class callable AgentLang tools.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `agent run <file> [--trace]` | Execute an AgentLang script (`.agt` / `.agent`) with optional OpenTelemetry tracing |
+| `agent run <file> [--trace]` | Execute an AgentLang script (`.agt` / `.agent` / `.agtc`) with optional OpenTelemetry tracing |
+| `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
+| `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
 | `agent serve --mcp` | Start standard Model Context Protocol (MCP) server over stdio |
 | `agent checkpoint [list\|show]`| Inspect and list persistent workflow execution checkpoints |
 | `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
@@ -328,7 +376,7 @@ JSON traces are automatically exported to `.agent/traces/{traceId}.json`.
 
 ## 🧪 Testing & Verification
 
-The test suite contains **151 automated tests (133 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **159 automated tests (141 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -336,7 +384,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 133, Skipped: 0, Total: 133, Duration: 1 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 141, Skipped: 0, Total: 141, Duration: 707 ms - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 520 ms - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

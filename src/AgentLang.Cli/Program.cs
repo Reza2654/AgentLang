@@ -5,7 +5,9 @@ using AgentLang.Semantic;
 using AgentLang.Security;
 using AgentLang.Transpiler;
 using AgentLang.VM;
+using AgentLang.VM.Bytecode;
 using AgentLang.VM.Checkpointing;
+using AgentLang.VM.Eval;
 using AgentLang.VM.MCP;
 using AgentLang.VM.Observability;
 
@@ -13,7 +15,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.5";
+    public const string Version = "0.6.6";
 
     public static async Task<int> Main(string[] args)
     {
@@ -54,6 +56,8 @@ public static class Program
                 "docker" => HandleDocker(args),
                 "serve" => await HandleServeAsync(args),
                 "checkpoint" => await HandleCheckpointAsync(args),
+                "compile" => await HandleCompileAsync(args),
+                "eval" => await HandleEvalAsync(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -93,6 +97,8 @@ public static class Program
         Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
         Console.WriteLine("  serve [--mcp]         Start an MCP (Model Context Protocol) server over stdio");
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
+        Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
+        Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
@@ -146,6 +152,20 @@ public static class Program
             Console.WriteLine($"Error: File not found: '{filePath}'");
             Console.ResetColor();
             return 1;
+        }
+
+        // Handle pre-compiled bytecode (.agtc) execution
+        if (filePath.EndsWith(".agtc", StringComparison.OrdinalIgnoreCase))
+        {
+            var module = AgentBytecodeModule.LoadFromFile(filePath);
+            var vm = new AgentVirtualMachine();
+            var result = await vm.ExecuteBytecodeAsync(module);
+            if (enableTrace)
+            {
+                Console.WriteLine();
+                await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+            }
+            return 0;
         }
 
         string source = await File.ReadAllTextAsync(filePath);
@@ -572,6 +592,115 @@ public static class Program
             Console.ResetColor();
             return 1;
         }
+    }
+
+    private static async Task<int> HandleCompileAsync(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing file path. Usage: agent compile <file.agt> [-o <out.agtc>]");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string filePath = args[1];
+        if (!File.Exists(filePath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error: File not found: '{filePath}'");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string outFile = Path.ChangeExtension(filePath, ".agtc");
+        int oIdx = Array.IndexOf(args, "-o");
+        if (oIdx >= 0 && oIdx + 1 < args.Length)
+        {
+            outFile = args[oIdx + 1];
+        }
+
+        string source = await File.ReadAllTextAsync(filePath);
+        var sourceText = new SourceText(source, filePath);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        if (parser.Diagnostics.HasErrors)
+        {
+            PrintDiagnostics(sourceText, parser.Diagnostics);
+            return 1;
+        }
+
+        var compiler = new BytecodeCompiler();
+        var module = compiler.Compile(program, Path.GetFileNameWithoutExtension(filePath));
+        module.SaveToFile(outFile);
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"✓ Compiled '{filePath}' to bytecode binary '{outFile}'");
+        Console.WriteLine($"  - Instructions: {module.Instructions.Count}");
+        Console.WriteLine($"  - Constants: {module.ConstantPool.Count}");
+        Console.WriteLine($"  - Symbols: {module.SymbolTable.Count}");
+        Console.ResetColor();
+        return 0;
+    }
+
+    private static async Task<int> HandleEvalAsync(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing file path. Usage: agent eval <file.agt> --dataset <dataset.json> [--agent <name>]");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string filePath = args[1];
+        string? datasetPath = null;
+        string? targetAgentName = null;
+
+        for (int i = 2; i < args.Length; i++)
+        {
+            if ((args[i] == "--dataset" || args[i] == "-d") && i + 1 < args.Length) datasetPath = args[++i];
+            else if ((args[i] == "--agent" || args[i] == "-a") && i + 1 < args.Length) targetAgentName = args[++i];
+        }
+
+        if (string.IsNullOrEmpty(datasetPath) || !File.Exists(datasetPath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing valid --dataset file.");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string source = await File.ReadAllTextAsync(filePath);
+        var sourceText = new SourceText(source, filePath);
+        var parser = new Parser.Parser(sourceText);
+        var program = parser.ParseProgram();
+
+        var runtime = new AgentLangRuntime();
+        await runtime.ExecuteProgramAsync(program);
+
+        var agent = targetAgentName != null && runtime.AgentInstances.TryGetValue(targetAgentName, out var a)
+            ? a
+            : runtime.AgentInstances.Values.FirstOrDefault();
+
+        if (agent == null)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: No defined agent found in program to evaluate.");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string datasetJson = await File.ReadAllTextAsync(datasetPath);
+        var dataset = BenchmarkDataset.FromJson(datasetJson);
+
+        var runner = new AgentBenchmarkRunner();
+        var scorecard = await runner.RunBenchmarkAsync(agent, dataset, runtime);
+
+        Console.WriteLine();
+        Console.WriteLine(scorecard.ToMarkdownReport());
+        return scorecard.PassRate >= 0.70 ? 0 : 1;
     }
 
     private static int HandleUnknown(string cmd)
