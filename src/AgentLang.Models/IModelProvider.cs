@@ -48,6 +48,7 @@ public sealed class ModelRegistry
         _providers.Add(new OpenAiModelProvider());
         _providers.Add(new GeminiModelProvider());
         _providers.Add(new AnthropicModelProvider());
+        _providers.Add(new OllamaModelProvider());
     }
 
     public IModelProvider? GetProvider(string providerId) =>

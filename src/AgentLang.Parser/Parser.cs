@@ -1,3 +1,4 @@
+using System.Globalization;
 using AgentLang.AST;
 using AgentLang.Lexer;
 
@@ -198,6 +199,10 @@ public sealed class Parser
             {
                 declarations.Add(ParseWorkflowDeclaration());
             }
+            else if (Check(TokenType.Schema))
+            {
+                declarations.Add(ParseSchemaDeclaration());
+            }
             else if (Check(TokenType.Guardrails))
             {
                 declarations.Add(ParseGuardrailsDeclaration());
@@ -246,7 +251,7 @@ public sealed class Parser
             if (Check(TokenType.Main) || Check(TokenType.Agent) || Check(TokenType.MultiAgent) ||
                 Check(TokenType.Permission) || Check(TokenType.Tool) || Check(TokenType.Event) ||
                 Check(TokenType.Function) || Check(TokenType.Model) || Check(TokenType.ImportApi) ||
-                Check(TokenType.Swarm))
+                Check(TokenType.Swarm) || Check(TokenType.Schema))
             {
                 return;
             }
@@ -1416,6 +1421,120 @@ public sealed class Parser
         var closeBrace = Match(TokenType.CloseBrace);
 
         return new WorkflowDeclarationNode(name, parameters, returnType, body, new SourceSpan(wfToken.Span.Start, closeBrace.Span.End, _source.FilePath));
+    }
+
+    private SchemaDeclarationNode ParseSchemaDeclaration()
+    {
+        var schemaToken = Match(TokenType.Schema);
+        string name = ParseIdentifierName("Expected schema name identifier");
+        string? description = null;
+
+        if (Check(TokenType.StringLiteral))
+        {
+            description = NextToken().Value?.ToString();
+        }
+
+        Match(TokenType.OpenBrace);
+        var fields = new List<SchemaFieldNode>();
+
+        while (!Check(TokenType.CloseBrace) && !Check(TokenType.EndOfFile))
+        {
+            var fStart = Current.Span;
+            string fName = ParseIdentifierName("Expected schema field name");
+            Match(TokenType.Colon);
+
+            bool isArray = false;
+            string typeName = "string";
+            double? minVal = null;
+            double? maxVal = null;
+            string? regexPattern = null;
+            string? fieldDesc = null;
+            bool isRequired = true;
+
+            if (Check(TokenType.OpenBracket))
+            {
+                isArray = true;
+                NextToken(); // [
+                typeName = ParseIdentifierName("Expected array element type");
+                Match(TokenType.CloseBracket);
+            }
+            else
+            {
+                typeName = ParseIdentifierName("Expected field type name");
+                if (Check(TokenType.OpenBracket) && Lookahead.Type == TokenType.CloseBracket)
+                {
+                    isArray = true;
+                    NextToken(); // [
+                    NextToken(); // ]
+                }
+            }
+
+            if (Check(TokenType.OpenParen))
+            {
+                NextToken(); // (
+                while (!Check(TokenType.CloseParen) && !Check(TokenType.EndOfFile))
+                {
+                    string paramName = ParseIdentifierName("Expected constraint parameter name");
+                    Match(TokenType.Colon);
+
+                    if (paramName.Equals("min", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expr = ParseExpression();
+                        if (expr is LiteralExpressionNode lit && double.TryParse(lit.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+                            minVal = v;
+                    }
+                    else if (paramName.Equals("max", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expr = ParseExpression();
+                        if (expr is LiteralExpressionNode lit && double.TryParse(lit.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+                            maxVal = v;
+                    }
+                    else if (paramName.Equals("regex", StringComparison.OrdinalIgnoreCase) || paramName.Equals("pattern", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expr = ParseExpression();
+                        if (expr is LiteralExpressionNode lit)
+                            regexPattern = lit.Value?.ToString();
+                    }
+                    else if (paramName.Equals("description", StringComparison.OrdinalIgnoreCase) || paramName.Equals("desc", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expr = ParseExpression();
+                        if (expr is LiteralExpressionNode lit)
+                            fieldDesc = lit.Value?.ToString();
+                    }
+                    else if (paramName.Equals("required", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var expr = ParseExpression();
+                        if (expr is LiteralExpressionNode lit && bool.TryParse(lit.Value?.ToString(), out var b))
+                            isRequired = b;
+                    }
+                    else
+                    {
+                        ParseExpression();
+                    }
+
+                    MatchOptional(TokenType.Comma, out _);
+                }
+                Match(TokenType.CloseParen);
+            }
+
+            MatchOptional(TokenType.Semicolon, out _);
+            MatchOptional(TokenType.Comma, out _);
+
+            fields.Add(new SchemaFieldNode(
+                fName,
+                typeName,
+                isArray,
+                isRequired,
+                minVal,
+                maxVal,
+                regexPattern,
+                fieldDesc,
+                new SourceSpan(fStart.Start, Current.Span.End, _source.FilePath)
+            ));
+        }
+
+        var schemaCloseBrace = Match(TokenType.CloseBrace);
+        return new SchemaDeclarationNode(name, description, fields, new SourceSpan(schemaToken.Span.Start, schemaCloseBrace.Span.End, _source.FilePath));
     }
 
     private GuardrailsDeclarationNode ParseGuardrailsDeclaration()

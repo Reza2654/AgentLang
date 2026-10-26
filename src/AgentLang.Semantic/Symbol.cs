@@ -19,7 +19,8 @@ public enum SymbolKind
     Dataset,
     TrainedModel,
     McpServer,
-    CustomApi
+    CustomApi,
+    Schema
 }
 
 public sealed record Symbol(

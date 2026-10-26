@@ -1,5 +1,6 @@
 using AgentLang.AST;
 using AgentLang.Lexer;
+using AgentLang.Models;
 using AgentLang.Parser;
 using AgentLang.Runtime;
 using AgentLang.Runtime.Values;
@@ -49,6 +50,7 @@ public sealed class AgentVirtualMachine
     public TreeOfThoughtsEngine TreeOfThoughts { get; } = new();
     public ResourceAccessPolicy ResourcePolicy { get; } = new();
     public CassetteRecorder CassetteRecorder { get; set; } = new();
+    public LlmGatewayRouter Gateway { get; } = new();
 
     public StateGraph CreateStateGraph(string name = "StateGraph") => new(name);
     public StateGraph<TState> CreateStateGraph<TState>(string name = "StateGraph") => new(name);

@@ -1,12 +1,12 @@
-# AgentLang — v0.6.8
+# AgentLang — v0.6.9
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.8-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-192%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.6.9-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-204%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -451,6 +451,49 @@ string output = await recorder.ExecuteWithCassetteAsync("search_tool", args, rea
 
 ---
 
+### 29. First-Class Native Schemas (`schema`)
+Define type-safe structured data contracts and validation constraints natively in `.agt` code:
+```agentlang
+schema SecurityAuditReport {
+    target: string,
+    vulnerabilities_found: int(min: 0, max: 1000),
+    risk_level: string(regex: "^(low|medium|high|critical)$"),
+    passed: bool,
+    cve_tags: [string]
+}
+```
+- Direct keywords and syntax checking in compiler AST and Semantic Analyzer (`AL0038` duplicate detection).
+- In-line constraints: `min`, `max`, `regex`, `required`, and array types `[T]`.
+- Directly converts to VM `StructuredSchema` contracts for agent output parsing and auto-repair.
+
+---
+
+### 30. Smart Cascading LLM Gateway & Circuit Breaker
+Eliminate rate-limit outages and provider downtimes with automatic failovers:
+```csharp
+var gateway = vm.Gateway;
+gateway.FallbackChain.AddRange(["gpt-4o", "claude-3-5-sonnet", "llama3.2"]);
+```
+- **Cascading Fallbacks**: Seamlessly fails over from primary to secondary models upon transient errors or HTTP failures.
+- **Provider Health Telemetry**: Live tracking of token consumption, request latency, and error frequencies.
+- **Circuit Breaker**: Trips from `Closed` to `Open` after consecutive failures, shielding unresponsive endpoints, with automatic `HalfOpen` cooldown probing.
+
+---
+
+### 31. Native Offline Local LLM Execution (`Ollama`)
+Deploy autonomous agents in air-gapped, high-privacy, or offline enterprise environments:
+```agentlang
+agent OfflineAuditor {
+    model: "llama3.2"
+    persona: "Local privacy-first code reviewer"
+}
+```
+- Native `OllamaModelProvider` targeting local daemon endpoints (`/api/generate`).
+- Seamless support for open-weights models: Llama 3, Mistral, DeepSeek, Qwen, Phi, Gemma, CodeLlama.
+- Complete token count and generation telemetry without external cloud dependencies.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
@@ -477,7 +520,7 @@ string output = await recorder.ExecuteWithCassetteAsync("search_tool", args, rea
 
 ## 🧪 Testing & Verification
 
-The test suite contains **192 automated tests (174 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **204 automated tests (186 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -485,7 +528,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 174, Skipped: 0, Total: 174, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 186, Skipped: 0, Total: 186, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

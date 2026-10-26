@@ -46,6 +46,8 @@ public interface IAstVisitor
     void Visit(StateDeclarationNode node);
     void Visit(StateFieldNode node);
     void Visit(WorkflowDeclarationNode node);
+    void Visit(SchemaDeclarationNode node);
+    void Visit(SchemaFieldNode node);
     void Visit(GuardrailsDeclarationNode node);
     void Visit(GuardrailRuleNode node);
     void Visit(OnEventDeclarationNode node);
@@ -126,6 +128,8 @@ public interface IAstVisitor<T>
     T Visit(StateDeclarationNode node);
     T Visit(StateFieldNode node);
     T Visit(WorkflowDeclarationNode node);
+    T Visit(SchemaDeclarationNode node);
+    T Visit(SchemaFieldNode node);
     T Visit(GuardrailsDeclarationNode node);
     T Visit(GuardrailRuleNode node);
     T Visit(OnEventDeclarationNode node);

@@ -72,6 +72,7 @@ public sealed class Lexer
         { "strategy", TokenType.Strategy },
         { "persona", TokenType.Persona },
         { "rules", TokenType.Rules },
+        { "schema", TokenType.Schema },
         { "case", TokenType.Case },
         { "default", TokenType.Default },
         { "max_retries", TokenType.MaxRetries },

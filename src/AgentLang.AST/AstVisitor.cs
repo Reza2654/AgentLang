@@ -177,6 +177,14 @@ public abstract class AstVisitor : IAstVisitor
             stmt.Accept(this);
     }
 
+    public virtual void Visit(SchemaDeclarationNode node)
+    {
+        foreach (var field in node.Fields)
+            field.Accept(this);
+    }
+
+    public virtual void Visit(SchemaFieldNode node) { }
+
     public virtual void Visit(GuardrailsDeclarationNode node)
     {
         foreach (var rule in node.Rules)

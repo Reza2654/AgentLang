@@ -207,6 +207,10 @@ public sealed class SemanticAnalyzer : AstVisitor
             case WorkflowDeclarationNode wf:
                 _globalScope.DeclareOrAssign(new Symbol(wf.Name, SymbolKind.Function, wf.Span, wf));
                 break;
+
+            case SchemaDeclarationNode schema:
+                _globalScope.DeclareOrAssign(new Symbol(schema.Name, SymbolKind.Schema, schema.Span, schema));
+                break;
         }
     }
 
@@ -642,6 +646,22 @@ public sealed class SemanticAnalyzer : AstVisitor
         }
         _currentScope = prev;
     }
+
+    public override void Visit(SchemaDeclarationNode node)
+    {
+        _currentScope.TryDeclare(new Symbol(node.Name, SymbolKind.Schema, node.Span));
+        var fieldNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in node.Fields)
+        {
+            if (!fieldNames.Add(field.Name))
+            {
+                _diagnostics.ReportError("AL0038", $"Duplicate field '{field.Name}' in schema '{node.Name}'", field.Span);
+            }
+            field.Accept(this);
+        }
+    }
+
+    public override void Visit(SchemaFieldNode node) { }
 
     public override void Visit(GuardrailsDeclarationNode node)
     {

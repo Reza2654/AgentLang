@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using AgentLang.AST;
 
 namespace AgentLang.VM.Schemas;
 
@@ -135,6 +136,8 @@ public sealed class StructuredSchema
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
+
+    public SchemaValidationResult Validate(string rawText) => StructuredOutputParser.Validate(rawText, this);
 }
 
 public sealed class SchemaBuilder
@@ -464,4 +467,56 @@ public static partial class StructuredOutputParser
 
     [GeneratedRegex(@",\s*([\]\}])")]
     private static partial Regex TrailingCommaRegex();
+}
+
+public static class SchemaAstExtensions
+{
+    public static StructuredSchema ToStructuredSchema(this SchemaDeclarationNode node)
+    {
+        var builder = SchemaBuilder.Create(node.Name);
+        if (!string.IsNullOrEmpty(node.Description))
+        {
+            builder.WithDescription(node.Description);
+        }
+
+        foreach (var f in node.Fields)
+        {
+            if (f.IsArray)
+            {
+                var itemType = ParseSchemaType(f.TypeName);
+                builder.AddArray(f.Name, itemType, f.IsRequired, f.Description);
+            }
+            else
+            {
+                var type = ParseSchemaType(f.TypeName);
+                switch (type)
+                {
+                    case SchemaType.Integer:
+                        builder.AddInteger(f.Name, f.IsRequired, f.Description, f.MinValue, f.MaxValue);
+                        break;
+                    case SchemaType.Float:
+                        builder.AddFloat(f.Name, f.IsRequired, f.Description, f.MinValue, f.MaxValue);
+                        break;
+                    case SchemaType.Boolean:
+                        builder.AddBoolean(f.Name, f.IsRequired, f.Description);
+                        break;
+                    default:
+                        builder.AddString(f.Name, f.IsRequired, f.Description, f.RegexPattern);
+                        break;
+                }
+            }
+        }
+
+        return builder.Build();
+    }
+
+    private static SchemaType ParseSchemaType(string typeName) => typeName.ToLowerInvariant() switch
+    {
+        "int" or "integer" or "long" => SchemaType.Integer,
+        "float" or "double" or "number" => SchemaType.Float,
+        "bool" or "boolean" => SchemaType.Boolean,
+        "array" or "list" => SchemaType.Array,
+        "object" => SchemaType.Object,
+        _ => SchemaType.String
+    };
 }

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.9] — 2026-10-26
+
+### Added
+- **First-Class Native Schema Declarations (`schema`)**:
+  - Added native `schema` keyword, Lexer token (`TokenType.Schema`), AST nodes (`SchemaDeclarationNode`, `SchemaFieldNode`), and Parser support.
+  - Declarative typed contract fields (`string`, `int`, `float`, `bool`, objects) with array support (`[type]`).
+  - In-line constraints: `min`, `max`, `regex`, and `required`.
+  - Semantic analysis validation with duplicate field detection diagnostic (`AL0038`).
+  - Automatic AST-to-Runtime compilation via `SchemaAstExtensions.ToStructuredSchema()`.
+  - Scoped runtime registration via `AgentLangRuntime.SchemaDefs`, making schemas directly usable for structured agent outputs.
+- **Smart Cascading LLM Gateway & Circuit Breaker (`AgentLang.Models.LlmGatewayRouter`)**:
+  - `LlmGatewayRouter`: Automatic model failover with ordered priority fallback chains across different providers (OpenAI, Anthropic, Gemini, Ollama, custom).
+  - `ProviderHealth` telemetry: Tracks request counts, token metrics, latency averages, and consecutive failure counts.
+  - Built-in 3-state Circuit Breaker (`Closed`, `Open`, `HalfOpen`) with configurable failure thresholds and cooldown periods to eliminate rate-limit cascades.
+  - Exposed directly on `AgentVirtualMachine.Gateway`.
+- **First-Class Native Local LLM Provider (`OllamaModelProvider`)**:
+  - Native integration with Ollama for zero-cost, private, offline, air-gapped agent operations.
+  - Auto-handling of popular open-weights models (`llama3`, `mistral`, `deepseek`, `qwen`, `phi`, `gemma`, `codellama`, and `ollama/*`).
+  - Full parameter mapping (`temperature`, `system`, `prompt`) and token usage tracking.
+  - Registered by default in `ModelRegistry`.
+- **Testing**:
+  - Added `V069Tests.cs` (12 comprehensive unit tests covering Native Schema AST parsing, Semantic checks, StructuredSchema conversions, Ollama local provider, LLM Gateway cascading fallback, Circuit Breaker state transitions, and Runtime integration).
+  - Total test count expanded to **204 tests** (186 unit tests + 18 integration tests) with 100% pass rate.
+
+---
+
 ## [0.6.8] — 2026-10-24
 
 ### Added

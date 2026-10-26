@@ -86,6 +86,7 @@ public enum TokenType
     Strategy,
     Persona,
     Rules,
+    Schema,
     Case,
     Default,
     MaxRetries,

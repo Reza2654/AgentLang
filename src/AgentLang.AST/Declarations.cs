@@ -501,6 +501,46 @@ public sealed class ImportDeclarationNode(
     public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
 }
 
+public sealed class SchemaFieldNode(
+    string name,
+    string typeName,
+    bool isArray,
+    bool isRequired,
+    double? minValue,
+    double? maxValue,
+    string? regexPattern,
+    string? description,
+    SourceSpan span)
+    : AstNode(span)
+{
+    public string Name { get; } = name;
+    public string TypeName { get; } = typeName;
+    public bool IsArray { get; } = isArray;
+    public bool IsRequired { get; } = isRequired;
+    public double? MinValue { get; } = minValue;
+    public double? MaxValue { get; } = maxValue;
+    public string? RegexPattern { get; } = regexPattern;
+    public string? Description { get; } = description;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
+public sealed class SchemaDeclarationNode(
+    string name,
+    string? description,
+    IReadOnlyList<SchemaFieldNode> fields,
+    SourceSpan span)
+    : DeclarationNode(span)
+{
+    public string Name { get; } = name;
+    public string? Description { get; } = description;
+    public IReadOnlyList<SchemaFieldNode> Fields { get; } = fields;
+
+    public override void Accept(IAstVisitor visitor) => visitor.Visit(this);
+    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.Visit(this);
+}
+
 public sealed class MainBlockNode(
     IReadOnlyList<StatementNode> statements,
     SourceSpan span)

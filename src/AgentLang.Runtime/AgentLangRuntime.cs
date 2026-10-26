@@ -44,6 +44,8 @@ public sealed class AgentLangRuntime
     private readonly Dictionary<string, PipelineDeclarationNode> _pipelineDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, StateDeclarationNode> _stateDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, WorkflowDeclarationNode> _workflowDefs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SchemaDeclarationNode> _schemaDefs = new(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, SchemaDeclarationNode> SchemaDefs => _schemaDefs;
     private readonly Dictionary<string, GuardrailsDeclarationNode> _guardrailsDefs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, McpClient> _mcpClients = new(StringComparer.OrdinalIgnoreCase);
     private readonly AiTrainingEngine _trainingEngine = new();
@@ -261,6 +263,11 @@ public sealed class AgentLangRuntime
                     _workflowDefs[wfDecl.Name] = wfDecl;
                     var wfVal = new WorkflowValue(wfDecl, _globalScope, this);
                     _globalScope.SetLocal(wfDecl.Name, wfVal);
+                    break;
+
+                case SchemaDeclarationNode schemaDecl:
+                    _schemaDefs[schemaDecl.Name] = schemaDecl;
+                    _globalScope.SetLocal(schemaDecl.Name, schemaDecl);
                     break;
 
                 case GuardrailsDeclarationNode guardDecl:
