@@ -225,12 +225,13 @@ public sealed class AgentLspServer
             });
         }
 
-        // 2. Built-in LLM Model Names
+        // 2. Built-in LLM Model Names (Frontier & Open-Weights)
         string[] models =
         [
-            "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude-3-haiku",
-            "gemini-1.5-pro", "gemini-1.5-flash", "llama3.2", "mistral:7b",
-            "deepseek-coder", "qwen2.5:7b"
+            "gpt-6-astra", "gpt-5-omni", "gpt-4o", "o3-pro", "o1",
+            "claude-fable-5.1", "claude-4.5-opus", "claude-3-5-sonnet",
+            "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro",
+            "llama-4-scout", "llama3.2", "mistral-large-3", "deepseek-coder-v3", "qwen-2.5-72b"
         ];
 
         foreach (var model in models)

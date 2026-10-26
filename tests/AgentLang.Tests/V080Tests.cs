@@ -210,7 +210,9 @@ public class V080Tests
         Assert.Contains("schema", labels);
         Assert.Contains("workflow", labels);
 
-        // Check models
+        // Check frontier & local models
+        Assert.Contains("\"gpt-6-astra\"", labels);
+        Assert.Contains("\"claude-fable-5.1\"", labels);
         Assert.Contains("\"gpt-4o\"", labels);
         Assert.Contains("\"llama3.2\"", labels);
 
@@ -339,5 +341,27 @@ public class V080Tests
         // Send exit
         await server.HandleMessageAsync("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}");
         Assert.False(server.IsRunning);
+    }
+
+    [Fact]
+    public void ModelRegistry_FrontierModelsAndAliases_ResolveCorrectly()
+    {
+        var registry = new AgentLang.Models.ModelRegistry();
+
+        // Direct frontier model name resolution
+        var gpt6Provider = registry.Resolve("gpt-6-astra");
+        Assert.Equal("openai", gpt6Provider.ProviderId);
+
+        var claudeFableProvider = registry.Resolve("claude-fable-5.1");
+        Assert.Equal("anthropic", claudeFableProvider.ProviderId);
+
+        // Alias resolution
+        Assert.Equal("gpt-6-astra", registry.ResolveAlias("gpt6"));
+        Assert.Equal("gpt-6-astra", registry.ResolveAlias("astra"));
+        Assert.Equal("claude-fable-5.1", registry.ResolveAlias("claude-fable"));
+        Assert.Equal("claude-fable-5.1", registry.ResolveAlias("fable"));
+
+        var aliasProvider = registry.Resolve("fable");
+        Assert.Equal("anthropic", aliasProvider.ProviderId);
     }
 }

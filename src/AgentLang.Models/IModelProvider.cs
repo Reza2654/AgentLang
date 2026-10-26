@@ -49,6 +49,16 @@ public sealed class ModelRegistry
         _providers.Add(new GeminiModelProvider());
         _providers.Add(new AnthropicModelProvider());
         _providers.Add(new OllamaModelProvider());
+
+        // Register default frontier model aliases
+        RegisterAlias("gpt6", "gpt-6-astra");
+        RegisterAlias("gpt-6", "gpt-6-astra");
+        RegisterAlias("astra", "gpt-6-astra");
+        RegisterAlias("gpt5", "gpt-5-omni");
+        RegisterAlias("claude-fable", "claude-fable-5.1");
+        RegisterAlias("fable", "claude-fable-5.1");
+        RegisterAlias("claude5", "claude-fable-5.1");
+        RegisterAlias("gemini2", "gemini-2.5-pro");
     }
 
     public IModelProvider? GetProvider(string providerId) =>

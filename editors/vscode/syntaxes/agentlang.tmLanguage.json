@@ -60,7 +60,7 @@
       "patterns": [
         {
           "name": "support.constant.model.agentlang",
-          "match": "\\b(gpt-4o|gpt-4o-mini|claude-3-5-sonnet|claude-3-haiku|gemini-1.5-pro|gemini-1.5-flash|llama3.2|mistral:7b)\\b"
+          "match": "\\b(gpt-6-astra|gpt-6|gpt-5|gpt-4o|o3|o1|claude-fable-5\\.1|claude-fable|claude-4\\.5|claude-3-5-sonnet|gemini-2\\.5-pro|gemini-2\\.0-flash|gemini-1\\.5-pro|llama-4|llama3\\.2|mistral-large|deepseek-coder)\\b"
         }
       ]
     },

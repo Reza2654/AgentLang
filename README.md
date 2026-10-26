@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
 [![Release](https://img.shields.io/badge/Release-v0.8.0-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-218%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Tests](https://img.shields.io/badge/Tests-219%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -60,7 +60,7 @@ Define agents declaratively with model configurations, personas, strategies, too
 
 ```agentlang
 agent ResearchAssistant {
-    model: "claude-3-5-sonnet"
+    model: "claude-fable-5.1"
     persona: "Rigorous research analyst focusing on empirical evidence"
     tools: [web_search, summarize_document]
     memory: ConversationBuffer(window: 5)
@@ -79,12 +79,12 @@ Create multi-agent collaborative workflows with built-in convergence loops:
 
 ```agentlang
 agent Writer {
-    model: "gpt-4o"
+    model: "gpt-6-astra"
     role: "Drafts comprehensive technical reports"
 }
 
 agent Critic {
-    model: "gpt-4o"
+    model: "claude-fable-5.1"
     role: "Reviews technical accuracy and formatting"
 }
 
@@ -575,7 +575,7 @@ agent serve --lsp
 
 ## 🧪 Testing & Verification
 
-The test suite contains **218 automated tests (200 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **219 automated tests (201 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -583,7 +583,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 200, Skipped: 0, Total: 200, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 201, Skipped: 0, Total: 201, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 
