@@ -12,6 +12,7 @@ using AgentLang.VM.Eval;
 using AgentLang.VM.MCP;
 using AgentLang.VM.Observability;
 using AgentLang.VM.Planning;
+using AgentLang.VM.Lsp;
 using AgentLang.VM.Server;
 using AgentLang.VM.Streaming;
 
@@ -19,7 +20,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.7.0";
+    public const string Version = "0.8.0";
 
     public static async Task<int> Main(string[] args)
     {
@@ -63,6 +64,7 @@ public static class Program
                 "compile" => await HandleCompileAsync(args),
                 "eval" => await HandleEvalAsync(args),
                 "plan" => await HandlePlanAsync(args),
+                "lsp" => await HandleLspAsync(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -100,7 +102,8 @@ public static class Program
         Console.WriteLine("  list                  List project dependencies");
         Console.WriteLine("  pack [dir] [-o <file>] Bundle an Agent project into a distributable .agtpkg archive");
         Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
-        Console.WriteLine("  serve [flags]         Start an MCP server (--mcp) or HTTP Web Microservice Gateway (--http [port])");
+        Console.WriteLine("  serve [flags]         Start an MCP server (--mcp), HTTP Gateway (--http [port]), or LSP server (--lsp)");
+        Console.WriteLine("  lsp                   Start standard Language Server Protocol (LSP) server over stdio");
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
         Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");
@@ -434,6 +437,12 @@ public static class Program
             return 0;
         }
 
+        bool isLsp = args.Any(a => a.Equals("--lsp", StringComparison.OrdinalIgnoreCase));
+        if (isLsp)
+        {
+            return await HandleLspAsync(args);
+        }
+
         bool isMcp = args.Any(a => a.Equals("--mcp", StringComparison.OrdinalIgnoreCase)) || args.Length == 1;
         if (isMcp)
         {
@@ -444,9 +453,17 @@ public static class Program
         }
 
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("Usage: agent serve [--mcp | --http [port]]");
+        Console.WriteLine("Usage: agent serve [--mcp | --http [port] | --lsp]");
         Console.ResetColor();
         return 1;
+    }
+
+    private static async Task<int> HandleLspAsync(string[] _)
+    {
+        using var transport = new LspTransport(Console.OpenStandardInput(), Console.OpenStandardOutput(), leaveOpen: true);
+        var server = new AgentLspServer(transport);
+        await server.RunAsync();
+        return 0;
     }
 
     private static async Task<int> HandleCheckpointAsync(string[] args)

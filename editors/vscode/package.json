@@ -1,0 +1,39 @@
+{
+  "name": "agentlang-vscode",
+  "displayName": "AgentLang",
+  "description": "Rich Language Server Protocol (LSP) and syntax highlighting support for AgentLang (.agt)",
+  "version": "0.8.0",
+  "publisher": "AgentLang",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Snippets"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "agentlang",
+        "aliases": [
+          "AgentLang",
+          "agentlang"
+        ],
+        "extensions": [
+          ".agt",
+          ".agent"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "agentlang",
+        "scopeName": "source.agentlang",
+        "path": "./syntaxes/agentlang.tmLanguage.json"
+      }
+    ]
+  }
+}

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] — 2026-10-26
+
+### Added
+- **Language Server Protocol (LSP) Server (`AgentLang.VM.Lsp`)**:
+  - `AgentLspServer`: Standard JSON-RPC 2.0 language server running over `stdio` with standard `Content-Length` framing (`LspTransport`).
+  - Real-Time Diagnostics (`textDocument/publishDiagnostics`): Live background parsing and semantic analysis emitting error markers with exact 0-based LSP ranges and diagnostic codes (`AL0038`, `AL2003`, etc.).
+  - IntelliSense Auto-Completion (`textDocument/completion`): Context-aware suggestions for keywords (`agent`, `schema`, `workflow`, `pipeline`, `state`, `goal`, `achieve`, `decide`), built-in models (`gpt-4o`, `claude-3-5-sonnet`, `llama3.2`, `mistral:7b`), tools, and declared symbols.
+  - Interactive Hover Documentation (`textDocument/hover`): Markdown docstrings and signature details for language primitives and user-defined agents/schemas.
+  - Document Outline & Breadcrumbs (`textDocument/documentSymbol`): Hierarchical outline of agents, schemas, fields, pipelines, and workflows.
+  - CLI commands: `agent lsp` and `agent serve --lsp`.
+- **Official VS Code Extension (`editors/vscode`)**:
+  - Language definition for `.agt` and `.agent` files with TextMate grammar syntax highlighting (`syntaxes/agentlang.tmLanguage.json`).
+  - Bracket matching, auto-closing pairs, and comment formatting (`language-configuration.json`).
+  - Extension manifest (`package.json`) and developer documentation.
+- **Testing**:
+  - Added `V080Tests.cs` (7 unit tests covering LSP transport framing, initialization capabilities, semantic diagnostics, completions, hover docs, document symbol hierarchy, and shutdown lifecycle).
+  - Total test count expanded to **218 tests** (200 unit tests + 18 integration tests) with a **100% pass rate**.
+
+---
+
 ## [0.7.0] — 2026-10-26
 
 ### Added

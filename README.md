@@ -1,12 +1,12 @@
-# AgentLang — v0.7.0
+# AgentLang — v0.8.0
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.7.0-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-211%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.8.0-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-218%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -530,12 +530,31 @@ agent serve --http 8080
 
 ---
 
+### 34. Language Server Protocol (LSP) & Official VS Code Extension
+World-class developer tooling with real-time compilation feedback and editor intelligence:
+```bash
+agent lsp
+# or
+agent serve --lsp
+```
+- **LSP Capabilities**:
+  - **Real-Time Diagnostics**: Instant feedback for syntax and semantic analyzer errors (`textDocument/publishDiagnostics`).
+  - **IntelliSense Auto-Completion**: Context-aware keywords, schemas, agents, tools, and popular LLM models (`textDocument/completion`).
+  - **Interactive Hover Documentation**: Rich markdown docstrings on hovering over keywords and declarations (`textDocument/hover`).
+  - **Document Outline & Breadcrumbs**: Hierarchical symbol outline of agents, schemas, fields, and workflows (`textDocument/documentSymbol`).
+- **Official VS Code Extension (`editors/vscode`)**:
+  - TextMate grammar syntax highlighting (`.agt` and `.agent`).
+  - Bracket matching, auto-closing pairs, and comment formatting.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
 | `agent run <file> [--trace] [--stream] [--dlp]` | Execute an AgentLang script with OpenTelemetry tracing, real-time event streaming, or DLP redaction |
-| `agent serve [--mcp \| --http [port]]` | Start an MCP server or HTTP Web Microservice Gateway with embedded Web Playground |
+| `agent serve [--mcp \| --http [port] \| --lsp]` | Start an MCP server, HTTP Web Gateway with Playground, or LSP language server |
+| `agent lsp` | Start standard Language Server Protocol (LSP) server over stdio |
 | `agent plan "<goal>" [--tools] [--execute]` | Generate or execute a hierarchical multi-step task plan DAG |
 | `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
 | `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
@@ -556,7 +575,7 @@ agent serve --http 8080
 
 ## 🧪 Testing & Verification
 
-The test suite contains **211 automated tests (193 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **218 automated tests (200 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -564,7 +583,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 193, Skipped: 0, Total: 193, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 200, Skipped: 0, Total: 200, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 
