@@ -1,12 +1,12 @@
-# AgentLang — v0.6.9
+# AgentLang — v0.7.0
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.6.9-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-204%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.7.0-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-211%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -494,15 +494,51 @@ agent OfflineAuditor {
 
 ---
 
+### 32. Durable Agent Execution & Suspension Engine (`AgentLang.VM.Durable`)
+Orchestrate resilient, long-running agent workflows that survive process restarts and await external signals:
+```csharp
+var context = await vm.Durable.StartAsync("LoanApproval", stepCtx => {
+    stepCtx.SetVariable("applicant", "Bob");
+    // Pause execution awaiting external risk approval signal
+    stepCtx.Suspend(SuspensionReason.HumanApprovalRequired, "ManagerApproval");
+    return Task.CompletedTask;
+});
+
+// Resume at a later time upon receiving the signal
+await vm.Durable.ResumeAsync(context.ExecutionId, new ExecutionSignal("ManagerApproval", payload), stepCtx => {
+    stepCtx.Complete(new { status = "APPROVED" });
+    return Task.CompletedTask;
+});
+```
+- Complete state capture: step index, variables, agent histories, and received signals.
+- Pluggable persistence (`MemoryDurableStateStore` and `FileDurableStateStore` in `.agent/durable/`).
+- Signal-driven resumption without losing call stack or context.
+
+---
+
+### 33. HTTP Web Microservice Gateway & Interactive Playground (`agent serve --http`)
+Expose AgentLang agents directly as high-performance REST & SSE microservices:
+```bash
+agent serve --http 8080
+```
+- **Endpoints**:
+  - `POST /api/v1/run`: Execute `.agt` scripts with parameter injection and JSON outputs.
+  - `POST /api/v1/stream`: Real-time Server-Sent Events (SSE) streaming for web clients and chat UIs.
+  - `POST /api/v1/resume`: Wake up and resume suspended durable workflows with signal payloads.
+  - `GET /api/v1/status`: Health check, active execution telemetry, and durable workflow overview.
+- **Embedded Web Playground (`/` or `/playground`)**: Built-in dark-mode interactive dashboard for composing scripts, executing runs, streaming SSE events, and inspecting durable workflows in real time.
+
+---
+
 ## 🛠️ CLI Reference
 
 | Command | Description |
 | :--- | :--- |
 | `agent run <file> [--trace] [--stream] [--dlp]` | Execute an AgentLang script with OpenTelemetry tracing, real-time event streaming, or DLP redaction |
+| `agent serve [--mcp \| --http [port]]` | Start an MCP server or HTTP Web Microservice Gateway with embedded Web Playground |
 | `agent plan "<goal>" [--tools] [--execute]` | Generate or execute a hierarchical multi-step task plan DAG |
 | `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
 | `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
-| `agent serve --mcp` | Start standard Model Context Protocol (MCP) server over stdio |
 | `agent checkpoint [list\|show]`| Inspect and list persistent workflow execution checkpoints |
 | `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
 | `agent repl` | Launch interactive REPL environment |
@@ -520,7 +556,7 @@ agent OfflineAuditor {
 
 ## 🧪 Testing & Verification
 
-The test suite contains **204 automated tests (186 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **211 automated tests (193 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -528,7 +564,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 186, Skipped: 0, Total: 186, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 193, Skipped: 0, Total: 193, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

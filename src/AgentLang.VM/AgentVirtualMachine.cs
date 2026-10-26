@@ -9,6 +9,7 @@ using AgentLang.VM.Actors;
 using AgentLang.VM.Artifacts;
 using AgentLang.VM.Bytecode;
 using AgentLang.VM.Checkpointing;
+using AgentLang.VM.Durable;
 using AgentLang.VM.Eval;
 using AgentLang.VM.Graphs;
 using AgentLang.VM.MCP;
@@ -51,6 +52,7 @@ public sealed class AgentVirtualMachine
     public ResourceAccessPolicy ResourcePolicy { get; } = new();
     public CassetteRecorder CassetteRecorder { get; set; } = new();
     public LlmGatewayRouter Gateway { get; } = new();
+    public DurableExecutionEngine Durable { get; } = new();
 
     public StateGraph CreateStateGraph(string name = "StateGraph") => new(name);
     public StateGraph<TState> CreateStateGraph<TState>(string name = "StateGraph") => new(name);

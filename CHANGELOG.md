@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] — 2026-10-26
+
+### Added
+- **Durable Agent Execution & Suspension Engine (`AgentLang.VM.Durable`)**:
+  - `DurableExecutionEngine`: Long-running agent execution lifecycle with pause/suspension (`Suspend`), state persistence, and deterministic resumption (`ResumeAsync`).
+  - `DurableExecutionContext`: Immutable state snapshots capturing execution status (`Pending`, `Running`, `Suspended`, `Completed`, `Faulted`), suspension reason (`WaitForSignal`, `HumanApprovalRequired`, `TimerExpired`, `ExternalWebhook`), waiting signals, step index, variables, agent histories, and received signals.
+  - `IDurableStateStore`: Pluggable state stores with `MemoryDurableStateStore` and `FileDurableStateStore` (persisted under `.agent/durable/`).
+  - Signal-based wakeups: Resumes suspended workflows upon receiving matching `ExecutionSignal` without losing memory or execution graph progress.
+  - Seamlessly exposed on `AgentVirtualMachine.Durable`.
+- **HTTP Web Microservice Gateway & Server (`agent serve --http [port]`) (`AgentLang.VM.Server`)**:
+  - `AgentHttpServer`: High-performance, zero-dependency async HTTP microservice server built on .NET `HttpListener`.
+  - Configurable port support (`agent serve --http [port]` or `--port <number>`, default `8080`).
+  - Standard REST & SSE endpoints:
+    - `POST /api/v1/run`: Executes code and returns JSON execution status, output, and variables.
+    - `POST /api/v1/stream`: Real-time streaming via Server-Sent Events (SSE) emitting token and execution events.
+    - `POST /api/v1/resume`: Resumes suspended durable workflows with signal payloads.
+    - `GET /api/v1/status`: Health check, active execution telemetry, and durable workflow overview.
+    - `GET /api/v1/durable`: Queries active, suspended, and completed durable executions.
+  - **Embedded Web Playground (`/` and `/playground`)**: Modern, responsive dark-mode interactive web dashboard for writing `.agt` code, triggering runs, streaming SSE events, and inspecting durable workflows.
+- **Testing**:
+  - Added `V070Tests.cs` (7 comprehensive unit and integration tests covering start/complete, suspend/resume across steps, file persistence/reloading, HTTP server status/playground, code execution endpoint, and HTTP-driven workflow resumption).
+  - Total test count expanded to **211 tests** (193 unit tests + 18 integration tests) with 100% pass rate.
+
+---
+
 ## [0.6.9] — 2026-10-26
 
 ### Added

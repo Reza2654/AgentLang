@@ -12,13 +12,14 @@ using AgentLang.VM.Eval;
 using AgentLang.VM.MCP;
 using AgentLang.VM.Observability;
 using AgentLang.VM.Planning;
+using AgentLang.VM.Server;
 using AgentLang.VM.Streaming;
 
 namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.6.9";
+    public const string Version = "0.7.0";
 
     public static async Task<int> Main(string[] args)
     {
@@ -99,7 +100,7 @@ public static class Program
         Console.WriteLine("  list                  List project dependencies");
         Console.WriteLine("  pack [dir] [-o <file>] Bundle an Agent project into a distributable .agtpkg archive");
         Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
-        Console.WriteLine("  serve [--mcp]         Start an MCP (Model Context Protocol) server over stdio");
+        Console.WriteLine("  serve [flags]         Start an MCP server (--mcp) or HTTP Web Microservice Gateway (--http [port])");
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
         Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");
@@ -381,6 +382,58 @@ public static class Program
 
     private static async Task<int> HandleServeAsync(string[] args)
     {
+        bool isHttp = args.Any(a => a.Equals("--http", StringComparison.OrdinalIgnoreCase));
+        if (isHttp)
+        {
+            int port = 8080;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i].Equals("--http", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[i + 1], out int p))
+                {
+                    port = p;
+                }
+                else if (args[i].Equals("--port", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[i + 1], out int p2))
+                {
+                    port = p2;
+                }
+            }
+
+            var vm = new AgentVirtualMachine();
+            using var server = new AgentHttpServer(port, vm);
+            using var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (s, e) =>
+            {
+                e.Cancel = true;
+                cts.Cancel();
+            };
+
+            await server.StartAsync(cts.Token);
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"AgentLang Microservice Server running at: http://localhost:{port}/");
+            Console.WriteLine($"  - Playground:    http://localhost:{port}/playground");
+            Console.WriteLine($"  - Execute API:   POST http://localhost:{port}/api/v1/run");
+            Console.WriteLine($"  - Stream API:    POST http://localhost:{port}/api/v1/stream");
+            Console.WriteLine($"  - Resume API:    POST http://localhost:{port}/api/v1/resume");
+            Console.WriteLine($"  - Status API:    GET  http://localhost:{port}/api/v1/status");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("\nPress Ctrl+C to stop the server...\n");
+            Console.ResetColor();
+
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Graceful cancellation
+            }
+
+            Console.WriteLine("Shutting down AgentLang server...");
+            server.Stop();
+            return 0;
+        }
+
         bool isMcp = args.Any(a => a.Equals("--mcp", StringComparison.OrdinalIgnoreCase)) || args.Length == 1;
         if (isMcp)
         {
@@ -391,7 +444,7 @@ public static class Program
         }
 
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("Usage: agent serve --mcp");
+        Console.WriteLine("Usage: agent serve [--mcp | --http [port]]");
         Console.ResetColor();
         return 1;
     }
