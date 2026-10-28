@@ -236,3 +236,56 @@ public sealed class LspDocumentSymbol
     [JsonPropertyName("children")]
     public List<LspDocumentSymbol>? Children { get; set; }
 }
+
+public sealed class LspLocation
+{
+    [JsonPropertyName("uri")]
+    public string Uri { get; set; } = string.Empty;
+
+    [JsonPropertyName("range")]
+    public LspRange Range { get; set; } = new();
+
+    public LspLocation() { }
+    public LspLocation(string uri, LspRange range)
+    {
+        Uri = uri;
+        Range = range;
+    }
+}
+
+public sealed class LspTextEdit
+{
+    [JsonPropertyName("range")]
+    public LspRange Range { get; set; } = new();
+
+    [JsonPropertyName("newText")]
+    public string NewText { get; set; } = string.Empty;
+
+    public LspTextEdit() { }
+    public LspTextEdit(LspRange range, string newText)
+    {
+        Range = range;
+        NewText = newText;
+    }
+}
+
+public sealed class LspWorkspaceEdit
+{
+    [JsonPropertyName("changes")]
+    public Dictionary<string, List<LspTextEdit>> Changes { get; set; } = new();
+}
+
+public sealed class LspCodeAction
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "quickfix";
+
+    [JsonPropertyName("diagnostics")]
+    public List<LspDiagnostic>? Diagnostics { get; set; }
+
+    [JsonPropertyName("edit")]
+    public LspWorkspaceEdit? Edit { get; set; }
+}

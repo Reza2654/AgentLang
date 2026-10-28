@@ -11,7 +11,7 @@ public sealed class OpenAiModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "gpt-4o";
+    private string _defaultModel = "gpt-6-astra";
     private readonly string _endpoint;
 
     public OpenAiModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null)
@@ -118,7 +118,7 @@ public sealed class GeminiModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "gemini-1.5-flash";
+    private string _defaultModel = "gemini-3.0-pro";
 
     public GeminiModelProvider(string? apiKey = null, HttpClient? httpClient = null)
     {
@@ -161,6 +161,7 @@ public sealed class GeminiModelProvider : IModelProvider
 
             if (request.ModelName.Equals("Gemini", StringComparison.OrdinalIgnoreCase) ||
                 request.ModelName.Equals("google", StringComparison.OrdinalIgnoreCase) ||
+                request.ModelName.Equals("gemini-pro", StringComparison.OrdinalIgnoreCase) ||
                 request.ModelName.Equals("gemini-flash", StringComparison.OrdinalIgnoreCase))
             {
                 actualModel = !string.IsNullOrWhiteSpace(envModel) ? envModel : _defaultModel;
@@ -239,7 +240,7 @@ public sealed class AnthropicModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "claude-3-5-sonnet-20241022";
+    private string _defaultModel = "claude-fable-5.1";
 
     public AnthropicModelProvider(string? apiKey = null, HttpClient? httpClient = null)
     {

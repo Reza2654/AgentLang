@@ -122,7 +122,22 @@ public sealed class AgentHttpServer : IDisposable
                 }
                 if (path is "/api/v1/durable")
                 {
-                    await ServeDurableListAsync(res, ct);
+                    await ServeDurableListAsync(req, res, ct);
+                    return;
+                }
+                if (path.StartsWith("/api/v1/durable/"))
+                {
+                    string id = path.Substring("/api/v1/durable/".Length);
+                    await ServeSingleDurableAsync(id, res, ct);
+                    return;
+                }
+            }
+            else if (req.HttpMethod.Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+            {
+                if (path.StartsWith("/api/v1/durable/"))
+                {
+                    string id = path.Substring("/api/v1/durable/".Length);
+                    await DeleteDurableAsync(id, res, ct);
                     return;
                 }
             }
@@ -188,10 +203,50 @@ public sealed class AgentHttpServer : IDisposable
         await WriteJsonAsync(res, status, ct);
     }
 
-    private async Task ServeDurableListAsync(HttpListenerResponse res, CancellationToken ct)
+    private async Task ServeDurableListAsync(HttpListenerRequest req, HttpListenerResponse res, CancellationToken ct)
     {
-        var list = await _vm.Durable.ListAsync(ct: ct);
+        DurableStatus? statusFilter = null;
+        string? statusParam = req.QueryString["status"];
+        if (!string.IsNullOrEmpty(statusParam) && Enum.TryParse<DurableStatus>(statusParam, ignoreCase: true, out var parsedStatus))
+        {
+            statusFilter = parsedStatus;
+        }
+
+        string? workflowParam = req.QueryString["workflow"];
+
+        var list = await _vm.Durable.ListAsync(statusFilter, ct);
+        if (!string.IsNullOrEmpty(workflowParam))
+        {
+            list = list.Where(d => d.WorkflowName.Equals(workflowParam, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
         await WriteJsonAsync(res, list, ct);
+    }
+
+    private async Task ServeSingleDurableAsync(string id, HttpListenerResponse res, CancellationToken ct)
+    {
+        var item = await _vm.Durable.GetAsync(id, ct);
+        if (item == null)
+        {
+            res.StatusCode = 404;
+            await WriteJsonAsync(res, new { error = $"Durable execution '{id}' not found." }, ct);
+            return;
+        }
+
+        await WriteJsonAsync(res, item, ct);
+    }
+
+    private async Task DeleteDurableAsync(string id, HttpListenerResponse res, CancellationToken ct)
+    {
+        bool deleted = await _vm.Durable.DeleteAsync(id, ct);
+        if (!deleted)
+        {
+            res.StatusCode = 404;
+            await WriteJsonAsync(res, new { error = $"Durable execution '{id}' not found." }, ct);
+            return;
+        }
+
+        await WriteJsonAsync(res, new { deleted = true, id }, ct);
     }
 
     private async Task HandleRunEndpointAsync(HttpListenerRequest req, HttpListenerResponse res, CancellationToken ct)

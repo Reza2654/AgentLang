@@ -58,7 +58,16 @@ public sealed class ModelRegistry
         RegisterAlias("claude-fable", "claude-fable-5.1");
         RegisterAlias("fable", "claude-fable-5.1");
         RegisterAlias("claude5", "claude-fable-5.1");
+        RegisterAlias("gemini3", "gemini-3.0-pro");
+        RegisterAlias("gemini-3", "gemini-3.0-pro");
+        RegisterAlias("gemini", "gemini-3.0-pro");
+        RegisterAlias("gemini-pro", "gemini-3.0-pro");
+        RegisterAlias("gemini-ultra", "gemini-3.1-ultra");
+        RegisterAlias("gemini-flash", "gemini-3.0-flash");
+        RegisterAlias("gemini-omni", "gemini-3.5-omni");
         RegisterAlias("gemini2", "gemini-2.5-pro");
+        RegisterAlias("llama4", "llama-4-maverick");
+        RegisterAlias("llama-4", "llama-4-maverick");
     }
 
     public IModelProvider? GetProvider(string providerId) =>

@@ -20,7 +20,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.8.0";
+    public const string Version = "0.8.1";
 
     public static async Task<int> Main(string[] args)
     {
@@ -65,6 +65,7 @@ public static class Program
                 "eval" => await HandleEvalAsync(args),
                 "plan" => await HandlePlanAsync(args),
                 "lsp" => await HandleLspAsync(args),
+                "watch" => await WatchCommand.RunAsync(args),
                 _ => HandleUnknown(args[0])
             };
         }
@@ -104,6 +105,7 @@ public static class Program
         Console.WriteLine("  docker [dir] [entry]  Generate production Dockerfile and .dockerignore for micro-agent");
         Console.WriteLine("  serve [flags]         Start an MCP server (--mcp), HTTP Gateway (--http [port]), or LSP server (--lsp)");
         Console.WriteLine("  lsp                   Start standard Language Server Protocol (LSP) server over stdio");
+        Console.WriteLine("  watch <file> [--run]  Watch a script for changes and perform hot-reload verification/execution");
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
         Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");

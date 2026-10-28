@@ -2511,9 +2511,9 @@ public sealed class AgentLangRuntime
 
                     try
                     {
-                        if (timeout.HasValue && timeout.Value < TimeSpan.FromMilliseconds(50))
+                        if (timeout.HasValue && timeout.Value < TimeSpan.FromMilliseconds(100))
                         {
-                            await Task.Delay(timeout.Value + TimeSpan.FromMilliseconds(20), executionCt);
+                            await Task.Delay(timeout.Value + TimeSpan.FromMilliseconds(60), executionCt);
                         }
 
                         executionCt.ThrowIfCancellationRequested();

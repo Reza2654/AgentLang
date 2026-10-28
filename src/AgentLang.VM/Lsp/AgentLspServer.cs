@@ -91,6 +91,18 @@ public sealed class AgentLspServer
                 await HandleDocumentSymbolAsync(id, root, ct);
                 break;
 
+            case "textDocument/definition":
+                await HandleDefinitionAsync(id, root, ct);
+                break;
+
+            case "textDocument/formatting":
+                await HandleFormattingAsync(id, root, ct);
+                break;
+
+            case "textDocument/codeAction":
+                await HandleCodeActionAsync(id, root, ct);
+                break;
+
             case "shutdown":
                 await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
                 break;
@@ -122,12 +134,15 @@ public sealed class AgentLspServer
                     triggerCharacters = new[] { ".", ":", "\"", " " }
                 },
                 hoverProvider = true,
-                documentSymbolProvider = true
+                documentSymbolProvider = true,
+                definitionProvider = true,
+                documentFormattingProvider = true,
+                codeActionProvider = true
             },
             serverInfo = new
             {
                 name = "agentlang-lsp",
-                version = "0.8.0"
+                version = "0.8.1"
             }
         };
 
@@ -225,13 +240,13 @@ public sealed class AgentLspServer
             });
         }
 
-        // 2. Built-in LLM Model Names (Frontier & Open-Weights)
+        // 2. Built-in LLM Model Names (Frontier, Open-Weights & Legacy)
         string[] models =
         [
-            "gpt-6-astra", "gpt-5-omni", "gpt-4o", "o3-pro", "o1",
-            "claude-fable-5.1", "claude-4.5-opus", "claude-3-5-sonnet",
-            "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro",
-            "llama-4-scout", "llama3.2", "mistral-large-3", "deepseek-coder-v3", "qwen-2.5-72b"
+            "gemini-3.0-pro", "gemini-3.0-flash", "gemini-3.1-ultra", "gemini-3.5-omni",
+            "gpt-6-astra", "gpt-6-omni", "gpt-5-omni", "gpt-4o", "o3-pro", "o3-high", "o4-mini",
+            "claude-fable-5.1", "claude-5-opus", "claude-4.5-opus",
+            "llama-4-maverick", "llama-4-scout", "llama3.2", "deepseek-v4", "qwen-3-max"
         ];
 
         foreach (var model in models)
@@ -481,6 +496,185 @@ public sealed class AgentLspServer
         }
 
         return string.Empty;
+    }
+
+    private async Task HandleDefinitionAsync(object? id, JsonElement root, CancellationToken ct)
+    {
+        LspLocation? location = null;
+
+        if (root.TryGetProperty("params", out var p) &&
+            p.TryGetProperty("textDocument", out var td) &&
+            td.TryGetProperty("uri", out var uriProp) &&
+            p.TryGetProperty("position", out var posProp))
+        {
+            string uri = uriProp.GetString() ?? "";
+            int line = posProp.GetProperty("line").GetInt32();
+            int character = posProp.GetProperty("character").GetInt32();
+
+            string? text = Documents.GetDocumentText(uri);
+            if (!string.IsNullOrEmpty(text))
+            {
+                string word = GetWordAtPosition(text, line, character);
+                var analysis = Documents.GetAnalysis(uri);
+
+                if (analysis?.Ast != null && !string.IsNullOrWhiteSpace(word))
+                {
+                    foreach (var decl in analysis.Ast.Declarations)
+                    {
+                        if (decl is AgentDeclarationNode a && a.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(a.Span));
+                            break;
+                        }
+                        if (decl is SchemaDeclarationNode s && s.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(s.Span));
+                            break;
+                        }
+                        if (decl is WorkflowDeclarationNode w && w.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(w.Span));
+                            break;
+                        }
+                        if (decl is PipelineDeclarationNode pip && pip.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(pip.Span));
+                            break;
+                        }
+                        if (decl is StateDeclarationNode st && st.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(st.Span));
+                            break;
+                        }
+                        if (decl is FunctionDeclarationNode fn && fn.Name.Equals(word, StringComparison.OrdinalIgnoreCase))
+                        {
+                            location = new LspLocation(uri, ToLspRange(fn.Span));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        var response = LspResponse.Success(id, location);
+        await _transport.SendMessageAsync(JsonSerializer.Serialize(response), ct);
+    }
+
+    private async Task HandleFormattingAsync(object? id, JsonElement root, CancellationToken ct)
+    {
+        var edits = new List<LspTextEdit>();
+
+        if (root.TryGetProperty("params", out var p) &&
+            p.TryGetProperty("textDocument", out var td) &&
+            td.TryGetProperty("uri", out var uriProp))
+        {
+            string uri = uriProp.GetString() ?? "";
+            string? text = Documents.GetDocumentText(uri);
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                string formatted = FormatCode(text);
+                var lines = text.Split('\n');
+                int endLine = lines.Length - 1;
+                int endChar = lines[endLine].TrimEnd('\r').Length;
+
+                edits.Add(new LspTextEdit(new LspRange(0, 0, endLine, endChar), formatted));
+            }
+        }
+
+        var response = LspResponse.Success(id, edits);
+        await _transport.SendMessageAsync(JsonSerializer.Serialize(response), ct);
+    }
+
+    public static string FormatCode(string code)
+    {
+        var lines = code.Replace("\r\n", "\n").Split('\n');
+        var sb = new System.Text.StringBuilder();
+        int indent = 0;
+        const string indentStr = "    ";
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].Trim();
+            if (string.IsNullOrEmpty(line))
+            {
+                sb.AppendLine();
+                continue;
+            }
+
+            bool startsWithClose = line.StartsWith('}') || line.StartsWith(']');
+            if (startsWithClose)
+            {
+                indent = Math.Max(0, indent - 1);
+            }
+
+            for (int k = 0; k < indent; k++)
+            {
+                sb.Append(indentStr);
+            }
+            sb.AppendLine(line);
+
+            int openCount = line.Count(c => c == '{' || c == '[');
+            int closeCount = line.Count(c => c == '}' || c == ']');
+
+            if (!startsWithClose && openCount > closeCount)
+            {
+                indent += (openCount - closeCount);
+            }
+            else if (startsWithClose && openCount > (closeCount - 1))
+            {
+                indent += openCount - (closeCount - 1);
+            }
+        }
+
+        return sb.ToString().TrimEnd() + Environment.NewLine;
+    }
+
+    private async Task HandleCodeActionAsync(object? id, JsonElement root, CancellationToken ct)
+    {
+        var actions = new List<LspCodeAction>();
+
+        if (root.TryGetProperty("params", out var p) &&
+            p.TryGetProperty("textDocument", out var td) &&
+            td.TryGetProperty("uri", out var uriProp) &&
+            p.TryGetProperty("context", out var ctxProp) &&
+            ctxProp.TryGetProperty("diagnostics", out var diagsProp))
+        {
+            string uri = uriProp.GetString() ?? "";
+            string? text = Documents.GetDocumentText(uri);
+
+            foreach (var diagElem in diagsProp.EnumerateArray())
+            {
+                string code = diagElem.TryGetProperty("code", out var cProp) ? cProp.GetString() ?? "" : "";
+
+                if (code == "AL0038" && !string.IsNullOrEmpty(text))
+                {
+                    // Quick fix for duplicate schema field: remove duplicate line
+                    var rangeElem = diagElem.GetProperty("range");
+                    int line = rangeElem.GetProperty("start").GetProperty("line").GetInt32();
+
+                    var lines = text.Split('\n').ToList();
+                    if (line >= 0 && line < lines.Count)
+                    {
+                        var edit = new LspWorkspaceEdit();
+                        edit.Changes[uri] = new List<LspTextEdit>
+                        {
+                            new LspTextEdit(new LspRange(line, 0, line + 1, 0), "")
+                        };
+
+                        actions.Add(new LspCodeAction
+                        {
+                            Title = "Remove duplicate field declaration",
+                            Kind = "quickfix",
+                            Edit = edit
+                        });
+                    }
+                }
+            }
+        }
+
+        var response = LspResponse.Success(id, actions);
+        await _transport.SendMessageAsync(JsonSerializer.Serialize(response), ct);
     }
 
     private static string GetWordAtPosition(string text, int line, int character)

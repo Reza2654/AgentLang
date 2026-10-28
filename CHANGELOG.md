@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.1] — 2026-10-28
+
+### Added
+- **Frontier LLM Lineup Modernization**:
+  - Full native support for Google Gemini 3 models (`gemini-3.0-pro`, `gemini-3.0-flash`, `gemini-3.1-ultra`, `gemini-3.5-omni`). Default Gemini model modernized to `gemini-3.0-pro`.
+  - Added modern aliases: `gemini3`, `gemini-3`, `gemini`, `gemini-pro`, `gemini-ultra`, `gemini-flash`, `gemini-omni`.
+  - OpenAI Frontier Support: Default updated to `gpt-6-astra` alongside `gpt-6-omni`, `o3-high`, `o4-mini`.
+  - Anthropic Frontier Support: Default updated to `claude-fable-5.1` alongside `claude-5-opus`.
+  - Open-Weights Frontier Support: Added aliases for `llama-4-maverick`, `llama-4-scout`, `deepseek-v4`, and `qwen-3-max`.
+- **LSP IDE Capabilities Enhancement (`AgentLang.VM.Lsp`)**:
+  - **Go To Definition (`textDocument/definition`)**: Jump directly to declarations of agents, schemas, workflows, and pipelines across documents with exact character boundaries.
+  - **Document Formatting (`textDocument/formatting`)**: In-process code formatting engine standardizing 4-space indentation, brace placement, and whitespace normalization.
+  - **Code Actions & Quick Fixes (`textDocument/codeAction`)**: Emits `quickfix` workspace edits for compiler diagnostics, including automated remediation of duplicate schema field declarations (`AL0038`).
+- **Hot-Reload File Watcher CLI Command (`agent watch`)**:
+  - Added `agent watch <file.agt> [--run]` powered by `FileSystemWatcher` with 250ms debouncing.
+  - Automatically performs semantic linting on file modifications and runs the agent pipeline in real-time when `--run` is passed.
+- **Durable Workflow REST API Management & Filtering (`AgentLang.VM.Server`)**:
+  - Query filtering for `GET /api/v1/durable?status=Suspended&workflow=ApprovalFlow` enabling fine-grained orchestration monitoring.
+  - Single execution lookup: `GET /api/v1/durable/{id}`.
+  - Execution cancellation/deletion: `DELETE /api/v1/durable/{id}`.
+- **Testing**:
+  - Added `V081Tests.cs` (7 unit tests covering Gemini 3.0 model resolution and aliases, LSP Go To Definition, Document Formatting, Code Action quick fixes, WatchCommand file evaluation, and filtered Durable REST endpoints).
+  - Total test count expanded to **225 tests** (207 unit tests + 18 integration tests) with a **100% pass rate**.
+
+---
+
 ## [0.8.0] — 2026-10-26
 
 ### Added
