@@ -11,7 +11,7 @@ public sealed class OpenAiModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "gpt-6-astra";
+    private string _defaultModel = "gpt-4o";
     private readonly string _endpoint;
 
     public OpenAiModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null)
@@ -118,7 +118,7 @@ public sealed class GeminiModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "gemini-3.0-pro";
+    private string _defaultModel = "gemini-2.5-pro";
 
     public GeminiModelProvider(string? apiKey = null, HttpClient? httpClient = null)
     {
@@ -240,7 +240,7 @@ public sealed class AnthropicModelProvider : IModelProvider
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
-    private string _defaultModel = "claude-fable-5.1";
+    private string _defaultModel = "claude-3-7-sonnet-20250219";
 
     public AnthropicModelProvider(string? apiKey = null, HttpClient? httpClient = null)
     {

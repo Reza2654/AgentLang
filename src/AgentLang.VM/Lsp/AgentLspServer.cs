@@ -240,13 +240,30 @@ public sealed class AgentLspServer
             });
         }
 
-        // 2. Built-in LLM Model Names (Frontier, Open-Weights & Legacy)
+        // 2. Built-in LLM Model Names (Official Production & Frontier Models)
         string[] models =
         [
-            "gemini-3.0-pro", "gemini-3.0-flash", "gemini-3.1-ultra", "gemini-3.5-omni",
-            "gpt-6-astra", "gpt-6-omni", "gpt-5-omni", "gpt-4o", "o3-pro", "o3-high", "o4-mini",
-            "claude-fable-5.1", "claude-5-opus", "claude-4.5-opus",
-            "llama-4-maverick", "llama-4-scout", "llama3.2", "deepseek-v4", "qwen-3-max"
+            // Google Gemini (Official)
+            "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+            "gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-4-argon",
+            "gemini-2.0-flash",
+
+            // OpenAI (Official)
+            "gpt-4o", "gpt-4o-mini", "gpt-4.5-preview",
+            "o3-mini", "o3", "o1", "o1-mini",
+
+            // Anthropic Claude (Official)
+            "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus",
+
+            // Meta Llama (Official)
+            "llama-3.3-70b-instruct", "llama-3.2-3b-instruct", "llama3.2", "llama-3.1-8b-instruct",
+
+            // DeepSeek (Official API)
+            "deepseek-chat", "deepseek-reasoner",
+
+            // Mistral & Qwen (Official)
+            "mistral-large-latest", "codestral-latest", "mistral:7b",
+            "qwen-2.5-72b-instruct", "qwen-2.5-coder-32b-instruct"
         ];
 
         foreach (var model in models)

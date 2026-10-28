@@ -20,41 +20,60 @@ public class V081Tests
     }
 
     // =========================================================================
-    // 1. GEMINI 3.0 & FRONTIER MODEL ALIASES AND RESOLUTION
+    // 1. OFFICIAL FRONTIER MODEL RESOLUTION & PRODUCTION ALIASES
     // =========================================================================
 
     [Fact]
-    public void ModelRegistry_Gemini3LineupAndAliases_ResolveCorrectly()
+    public void ModelRegistry_OfficialFrontierModelsAndAliases_ResolveCorrectly()
     {
         var registry = new ModelRegistry();
 
-        // 1. Gemini 3.0 / 3.1 / 3.5 direct resolution
-        var g3 = registry.Resolve("gemini-3.0-pro");
-        Assert.Equal("gemini", g3.ProviderId);
+        // 1. Official Google Gemini models direct resolution
+        var g25Pro = registry.Resolve("gemini-2.5-pro");
+        Assert.Equal("gemini", g25Pro.ProviderId);
 
-        var g3Ultra = registry.Resolve("gemini-3.1-ultra");
-        Assert.Equal("gemini", g3Ultra.ProviderId);
+        var g25Flash = registry.Resolve("gemini-2.5-flash");
+        Assert.Equal("gemini", g25Flash.ProviderId);
 
-        var g3Flash = registry.Resolve("gemini-3.0-flash");
-        Assert.Equal("gemini", g3Flash.ProviderId);
+        var g38Flash = registry.Resolve("gemini-3.8-flash");
+        Assert.Equal("gemini", g38Flash.ProviderId);
 
-        var g3Omni = registry.Resolve("gemini-3.5-omni");
-        Assert.Equal("gemini", g3Omni.ProviderId);
+        var g31Pro = registry.Resolve("gemini-3.1-pro-preview");
+        Assert.Equal("gemini", g31Pro.ProviderId);
 
-        // 2. Gemini Aliases
-        Assert.Equal("gemini-3.0-pro", registry.ResolveAlias("gemini3"));
-        Assert.Equal("gemini-3.0-pro", registry.ResolveAlias("gemini-3"));
-        Assert.Equal("gemini-3.0-pro", registry.ResolveAlias("gemini"));
-        Assert.Equal("gemini-3.0-pro", registry.ResolveAlias("gemini-pro"));
-        Assert.Equal("gemini-3.1-ultra", registry.ResolveAlias("gemini-ultra"));
-        Assert.Equal("gemini-3.0-flash", registry.ResolveAlias("gemini-flash"));
-        Assert.Equal("gemini-3.5-omni", registry.ResolveAlias("gemini-omni"));
+        var g4Argon = registry.Resolve("gemini-4-argon");
+        Assert.Equal("gemini", g4Argon.ProviderId);
 
-        // 3. Llama 4 Aliases
-        Assert.Equal("llama-4-maverick", registry.ResolveAlias("llama4"));
-        Assert.Equal("llama-4-maverick", registry.ResolveAlias("llama-4"));
+        // 2. Official Gemini Aliases
+        Assert.Equal("gemini-2.5-pro", registry.ResolveAlias("gemini"));
+        Assert.Equal("gemini-2.5-pro", registry.ResolveAlias("gemini-pro"));
+        Assert.Equal("gemini-2.5-flash", registry.ResolveAlias("gemini-flash"));
+        Assert.Equal("gemini-2.5-flash-lite", registry.ResolveAlias("gemini-flash-lite"));
+        Assert.Equal("gemini-3.1-pro-preview", registry.ResolveAlias("gemini3"));
+        Assert.Equal("gemini-3.1-pro-preview", registry.ResolveAlias("gemini-3"));
+        Assert.Equal("gemini-3.8-flash", registry.ResolveAlias("gemini-3-flash"));
+        Assert.Equal("gemini-4-argon", registry.ResolveAlias("gemini4"));
+        Assert.Equal("gemini-4-argon", registry.ResolveAlias("gemini-4"));
 
-        // 4. Default providers check
+        // 3. Official OpenAI Aliases
+        Assert.Equal("gpt-4o", registry.ResolveAlias("gpt"));
+        Assert.Equal("gpt-4o", registry.ResolveAlias("gpt4"));
+        Assert.Equal("gpt-4.5-preview", registry.ResolveAlias("gpt4.5"));
+        Assert.Equal("o3-mini", registry.ResolveAlias("o3"));
+
+        // 4. Official Anthropic Claude Aliases
+        Assert.Equal("claude-3-7-sonnet", registry.ResolveAlias("claude"));
+        Assert.Equal("claude-3-7-sonnet", registry.ResolveAlias("claude-sonnet"));
+        Assert.Equal("claude-3-5-haiku", registry.ResolveAlias("claude-haiku"));
+        Assert.Equal("claude-3-opus", registry.ResolveAlias("claude-opus"));
+
+        // 5. Official DeepSeek & Meta Llama Aliases
+        Assert.Equal("deepseek-chat", registry.ResolveAlias("deepseek"));
+        Assert.Equal("deepseek-reasoner", registry.ResolveAlias("deepseek-r1"));
+        Assert.Equal("llama-3.3-70b-instruct", registry.ResolveAlias("llama"));
+        Assert.Equal("llama-3.2-3b-instruct", registry.ResolveAlias("llama3.2"));
+
+        // 6. Default providers check
         var geminiProvider = Assert.IsType<GeminiModelProvider>(registry.GetProvider("gemini"));
         Assert.NotNull(geminiProvider);
 

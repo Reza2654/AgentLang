@@ -50,24 +50,49 @@ public sealed class ModelRegistry
         _providers.Add(new AnthropicModelProvider());
         _providers.Add(new OllamaModelProvider());
 
-        // Register default frontier model aliases
-        RegisterAlias("gpt6", "gpt-6-astra");
-        RegisterAlias("gpt-6", "gpt-6-astra");
-        RegisterAlias("astra", "gpt-6-astra");
-        RegisterAlias("gpt5", "gpt-5-omni");
-        RegisterAlias("claude-fable", "claude-fable-5.1");
-        RegisterAlias("fable", "claude-fable-5.1");
-        RegisterAlias("claude5", "claude-fable-5.1");
-        RegisterAlias("gemini3", "gemini-3.0-pro");
-        RegisterAlias("gemini-3", "gemini-3.0-pro");
-        RegisterAlias("gemini", "gemini-3.0-pro");
-        RegisterAlias("gemini-pro", "gemini-3.0-pro");
-        RegisterAlias("gemini-ultra", "gemini-3.1-ultra");
-        RegisterAlias("gemini-flash", "gemini-3.0-flash");
-        RegisterAlias("gemini-omni", "gemini-3.5-omni");
+        // Register official frontier model aliases
+        // OpenAI
+        RegisterAlias("gpt4", "gpt-4o");
+        RegisterAlias("gpt-4", "gpt-4o");
+        RegisterAlias("gpt", "gpt-4o");
+        RegisterAlias("gpt4.5", "gpt-4.5-preview");
+        RegisterAlias("gpt-4.5", "gpt-4.5-preview");
+        RegisterAlias("o3", "o3-mini");
+        RegisterAlias("o1", "o1-mini");
+
+        // Anthropic Claude
+        RegisterAlias("claude", "claude-3-7-sonnet");
+        RegisterAlias("claude3", "claude-3-7-sonnet");
+        RegisterAlias("claude-sonnet", "claude-3-7-sonnet");
+        RegisterAlias("sonnet", "claude-3-7-sonnet");
+        RegisterAlias("claude-haiku", "claude-3-5-haiku");
+        RegisterAlias("claude-opus", "claude-3-opus");
+
+        // Google Gemini
+        RegisterAlias("gemini", "gemini-2.5-pro");
+        RegisterAlias("gemini-pro", "gemini-2.5-pro");
+        RegisterAlias("gemini-flash", "gemini-2.5-flash");
+        RegisterAlias("gemini-flash-lite", "gemini-2.5-flash-lite");
         RegisterAlias("gemini2", "gemini-2.5-pro");
-        RegisterAlias("llama4", "llama-4-maverick");
-        RegisterAlias("llama-4", "llama-4-maverick");
+        RegisterAlias("gemini-2", "gemini-2.5-pro");
+        RegisterAlias("gemini3", "gemini-3.1-pro-preview");
+        RegisterAlias("gemini-3", "gemini-3.1-pro-preview");
+        RegisterAlias("gemini-3-flash", "gemini-3.8-flash");
+        RegisterAlias("gemini4", "gemini-4-argon");
+        RegisterAlias("gemini-4", "gemini-4-argon");
+
+        // Meta Llama
+        RegisterAlias("llama", "llama-3.3-70b-instruct");
+        RegisterAlias("llama3", "llama-3.3-70b-instruct");
+        RegisterAlias("llama-3", "llama-3.3-70b-instruct");
+        RegisterAlias("llama3.3", "llama-3.3-70b-instruct");
+        RegisterAlias("llama3.2", "llama-3.2-3b-instruct");
+
+        // DeepSeek
+        RegisterAlias("deepseek", "deepseek-chat");
+        RegisterAlias("deepseek-r1", "deepseek-reasoner");
+        RegisterAlias("deepseek-v3", "deepseek-chat");
+        RegisterAlias("r1", "deepseek-reasoner");
     }
 
     public IModelProvider? GetProvider(string providerId) =>

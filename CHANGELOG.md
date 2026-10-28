@@ -10,12 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.1] — 2026-10-28
 
 ### Added
-- **Frontier LLM Lineup Modernization**:
-  - Full native support for Google Gemini 3 models (`gemini-3.0-pro`, `gemini-3.0-flash`, `gemini-3.1-ultra`, `gemini-3.5-omni`). Default Gemini model modernized to `gemini-3.0-pro`.
-  - Added modern aliases: `gemini3`, `gemini-3`, `gemini`, `gemini-pro`, `gemini-ultra`, `gemini-flash`, `gemini-omni`.
-  - OpenAI Frontier Support: Default updated to `gpt-6-astra` alongside `gpt-6-omni`, `o3-high`, `o4-mini`.
-  - Anthropic Frontier Support: Default updated to `claude-fable-5.1` alongside `claude-5-opus`.
-  - Open-Weights Frontier Support: Added aliases for `llama-4-maverick`, `llama-4-scout`, `deepseek-v4`, and `qwen-3-max`.
+- **Official Frontier LLM Lineup & Integration**:
+  - Full native support for Google Gemini official production and preview models: `gemini-2.5-pro` (default), `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-4-argon`.
+  - Added official Google Gemini aliases: `gemini`, `gemini-pro`, `gemini-flash`, `gemini-flash-lite`, `gemini3`, `gemini-3-flash`, `gemini4`.
+  - OpenAI Official Lineup: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4.5-preview`, `o3-mini`, `o3`, `o1`, and `o1-mini`.
+  - Anthropic Claude Official Lineup: `claude-3-7-sonnet` (default hybrid reasoning), `claude-3-5-sonnet`, `claude-3-5-haiku`, and `claude-3-opus`.
+  - Official Open-Weights & DeepSeek API: `deepseek-chat` (DeepSeek-V3), `deepseek-reasoner` (DeepSeek-R1), Meta `llama-3.3-70b-instruct`, `llama-3.2-3b-instruct`, `mistral-large-latest`, `codestral-latest`, and `qwen-2.5-coder`.
 - **LSP IDE Capabilities Enhancement (`AgentLang.VM.Lsp`)**:
   - **Go To Definition (`textDocument/definition`)**: Jump directly to declarations of agents, schemas, workflows, and pipelines across documents with exact character boundaries.
   - **Document Formatting (`textDocument/formatting`)**: In-process code formatting engine standardizing 4-space indentation, brace placement, and whitespace normalization.

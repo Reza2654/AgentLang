@@ -60,7 +60,7 @@ Define agents declaratively with model configurations, personas, strategies, too
 
 ```agentlang
 agent ResearchAssistant {
-    model: "claude-fable-5.1"
+    model: "claude-3-7-sonnet"
     persona: "Rigorous research analyst focusing on empirical evidence"
     tools: [web_search, summarize_document]
     memory: ConversationBuffer(window: 5)
@@ -558,11 +558,11 @@ agent watch main.agt --run
 ```
 - **Instant Feedback**: Debounced file watcher (250ms) triggers automated syntax/semantic verification on save.
 - **Auto-Execution**: Add `--run` to immediately run the agent pipeline upon clean compilation.
-- **Frontier LLM Lineup**: Native out-of-the-box configuration and aliases for the newest generation of frontier models:
-  - **Google Gemini 3 Family**: `gemini-3.0-pro` (default), `gemini-3.0-flash`, `gemini-3.1-ultra`, `gemini-3.5-omni`.
-  - **OpenAI**: `gpt-6-astra` (default), `gpt-6-omni`, `o3-high`, `o4-mini`.
-  - **Anthropic**: `claude-fable-5.1` (default), `claude-5-opus`.
-  - **Open-Weights**: `llama-4-maverick`, `llama-4-scout`, `deepseek-v4`, `qwen-3-max`.
+- **Official Frontier LLM Lineup**: Native out-of-the-box configuration and aliases for the newest generation of frontier and production models:
+  - **Google Gemini**: `gemini-2.5-pro` (default), `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.1-pro-preview`, `gemini-4-argon`.
+  - **OpenAI**: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4.5-preview`, `o3-mini`, `o3`, `o1`.
+  - **Anthropic**: `claude-3-7-sonnet` (default), `claude-3-5-sonnet`, `claude-3-5-haiku`, `claude-3-opus`.
+  - **Open-Weights & Reasoning**: `llama-3.3-70b-instruct`, `llama-3.2-3b-instruct`, `deepseek-chat` (V3), `deepseek-reasoner` (R1), `codestral-latest`.
 
 ---
 
