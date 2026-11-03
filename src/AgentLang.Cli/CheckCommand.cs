@@ -76,13 +76,9 @@ public static class CheckCommand
                 foreach (var diag in parser.Diagnostics.Concat(sem.Diagnostics))
                 {
                     Console.ForegroundColor = diag.Severity == DiagnosticSeverity.Error ? ConsoleColor.Red : ConsoleColor.Yellow;
-                    Console.WriteLine($"  [{diag.Code}] Line {diag.Span.Start.Line}, Col {diag.Span.Start.Column}: {diag.Message}");
-                    if (diag.Suggestion != null)
-                    {
-                        Console.ForegroundColor = ConsoleColor.DarkGray;
-                        Console.WriteLine($"    Hint: {diag.Suggestion}");
-                    }
+                    Console.WriteLine(source.FormatDiagnostic(diag));
                     Console.ResetColor();
+                    Console.WriteLine();
                 }
             }
         }

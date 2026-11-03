@@ -15,12 +15,21 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInModels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "GPT", "Claude", "Gemini", "Mock", "Test", "fast", "mock", "test", "gemini", "openai", "claude", "tavily"
+        "GPT", "Claude", "Gemini", "Mock", "Test", "fast", "mock", "test", "gemini", "openai", "claude", "tavily",
+        "deepseek", "llama", "argon", "carbon", "astra", "sol", "luna", "fable"
+    };
+
+    private static readonly HashSet<string> BuiltInModules = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "text", "json", "math", "time", "collections", "crypto", "rag", "sandbox", "env"
     };
 
     private static readonly HashSet<string> BuiltInFunctions = new(StringComparer.Ordinal)
     {
-        "print", "input", "type", "remember", "recall", "forget", "confirm"
+        "print", "input", "type", "remember", "recall", "forget", "confirm",
+        "len", "length", "trim", "split", "join", "replace", "to_lower", "to_upper",
+        "starts_with", "ends_with", "contains", "round", "min", "max", "abs", "clamp",
+        "json_parse", "json_stringify", "time_now", "time_elapsed"
     };
 
     private static readonly HashSet<string> BuiltInConstants = new(StringComparer.OrdinalIgnoreCase)
@@ -61,6 +70,11 @@ public sealed class SemanticAnalyzer : AstVisitor
         foreach (var c in BuiltInConstants)
         {
             _globalScope.TryDeclare(new Symbol(c, SymbolKind.Variable, SourceSpan.None));
+        }
+
+        foreach (var m in BuiltInModules)
+        {
+            _globalScope.TryDeclare(new Symbol(m, SymbolKind.Variable, SourceSpan.None, "module"));
         }
     }
 
@@ -518,8 +532,8 @@ public sealed class SemanticAnalyzer : AstVisitor
         var sym = _currentScope.Lookup(node.Name);
         if (sym == null)
         {
-            // Check if it's a known model or function or operation or constant
-            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name) || BuiltInModels.Contains(node.Name) || BuiltInConstants.Contains(node.Name))
+            // Check if it's a known model, function, module, tool or constant
+            if (BuiltInFunctions.Contains(node.Name) || BuiltInTools.Contains(node.Name) || BuiltInModels.Contains(node.Name) || BuiltInConstants.Contains(node.Name) || BuiltInModules.Contains(node.Name))
                 return;
 
             string? suggestion = FindClosestMatch(node.Name, _currentScope.AllSymbols().Select(s => s.Name));

@@ -33,6 +33,7 @@ public sealed class OpenAiModelProvider : IModelProvider
         modelName.StartsWith("gpt", StringComparison.OrdinalIgnoreCase) ||
         modelName.StartsWith("o1", StringComparison.OrdinalIgnoreCase) ||
         modelName.StartsWith("o3", StringComparison.OrdinalIgnoreCase) ||
+        modelName.StartsWith("o4", StringComparison.OrdinalIgnoreCase) ||
         modelName.Equals("GPT", StringComparison.OrdinalIgnoreCase) ||
         modelName.Equals("openai", StringComparison.OrdinalIgnoreCase);
 
@@ -326,6 +327,108 @@ public sealed class AnthropicModelProvider : IModelProvider
             }
 
             return new ModelResponse(resultText, actualModel, 0, sw.Elapsed, true);
+        }
+        catch (Exception ex)
+        {
+            return ModelResponse.Failed(ex.Message, request.ModelName);
+        }
+    }
+}
+
+public sealed class DeepSeekModelProvider : IModelProvider
+{
+    public string ProviderId => "deepseek";
+    private readonly HttpClient _httpClient;
+    private readonly string? _apiKey;
+    private string? _dynamicApiKey;
+    private string _defaultModel = "deepseek-chat";
+    private readonly string _endpoint;
+
+    public DeepSeekModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null)
+    {
+        _apiKey = apiKey ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+        _endpoint = endpoint ?? Environment.GetEnvironmentVariable("DEEPSEEK_ENDPOINT") ?? "https://api.deepseek.com/chat/completions";
+        _httpClient = httpClient ?? new HttpClient();
+    }
+
+    public void SetApiKey(string key) => _dynamicApiKey = key;
+    public void SetDefaultModel(string model) => _defaultModel = model;
+
+    private string? GetEffectiveApiKey() =>
+        _dynamicApiKey ??
+        _apiKey ??
+        Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+
+    public bool CanHandle(string modelName) =>
+        modelName.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase) ||
+        modelName.Equals("r1", StringComparison.OrdinalIgnoreCase);
+
+    public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default)
+    {
+        string? key = GetEffectiveApiKey();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return new ModelResponse(
+                $"[DeepSeek Mock Response: DEEPSEEK_API_KEY not set] Processed '{request.Prompt}' using model '{request.ModelName}'",
+                request.ModelName,
+                TokensUsed: 42,
+                Latency: TimeSpan.FromMilliseconds(50),
+                Success: true
+            );
+        }
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+
+            string actualModel = request.ModelName.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+                ? _defaultModel
+                : request.ModelName;
+
+            var messages = new List<object>();
+            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+            {
+                messages.Add(new { role = "system", content = request.SystemInstruction });
+            }
+            messages.Add(new { role = "user", content = request.Prompt });
+
+            var payload = new
+            {
+                model = actualModel,
+                messages = messages,
+                temperature = request.Temperature
+            };
+
+            string json = JsonSerializer.Serialize(payload);
+            httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(httpRequest, ct);
+            sw.Stop();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string err = await response.Content.ReadAsStringAsync(ct);
+                return ModelResponse.Failed($"DeepSeek API HTTP {response.StatusCode}: {err}", actualModel);
+            }
+
+            string responseJson = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(responseJson);
+            string content = string.Empty;
+            if (doc.RootElement.TryGetProperty("choices", out var choices) &&
+                choices.GetArrayLength() > 0 &&
+                choices[0].TryGetProperty("message", out var msgElem) &&
+                msgElem.TryGetProperty("content", out var contentElem))
+            {
+                content = contentElem.GetString() ?? string.Empty;
+            }
+
+            int tokens = doc.RootElement.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var totalTokens)
+                ? totalTokens.GetInt32()
+                : 0;
+
+            return new ModelResponse(content, actualModel, tokens, sw.Elapsed, true);
         }
         catch (Exception ex)
         {

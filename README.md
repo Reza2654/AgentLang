@@ -1,12 +1,12 @@
-# AgentLang — v0.8.1
+# AgentLang — v0.8.2
 
 > **An Agent-Native Programming Language for Autonomous AI Systems**  
 > *Built with modern C# 14 on .NET 10.*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.8.1-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-225%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.8.2-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-233%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -545,6 +545,8 @@ agent serve --lsp
   - **Go To Definition**: Jump directly to declarations of agents, schemas, workflows, and pipelines across documents (`textDocument/definition`).
   - **Document Formatting**: In-process code formatting standardizing 4-space indentation and brace placement (`textDocument/formatting`).
   - **Code Actions & Quick Fixes**: Automated compiler diagnostics quick fixes (`textDocument/codeAction`).
+  - **Rename Symbol**: Project-wide identifier and agent symbol renaming (`textDocument/rename`).
+  - **Find All References**: Find all declarations and usages of any symbol (`textDocument/references`).
 - **Official VS Code Extension (`editors/vscode`)**:
   - TextMate grammar syntax highlighting (`.agt` and `.agent`).
   - Bracket matching, auto-closing pairs, and comment formatting.
@@ -558,11 +560,40 @@ agent watch main.agt --run
 ```
 - **Instant Feedback**: Debounced file watcher (250ms) triggers automated syntax/semantic verification on save.
 - **Auto-Execution**: Add `--run` to immediately run the agent pipeline upon clean compilation.
-- **Official Frontier LLM Lineup**: Native out-of-the-box configuration and aliases for the newest generation of frontier and production models:
-  - **Google Gemini**: `gemini-2.5-pro` (default), `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.1-pro-preview`, `gemini-4-argon`.
-  - **OpenAI**: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4.5-preview`, `o3-mini`, `o3`, `o1`.
-  - **Anthropic**: `claude-3-7-sonnet` (default), `claude-3-5-sonnet`, `claude-3-5-haiku`, `claude-3-opus`.
-  - **Open-Weights & Reasoning**: `llama-3.3-70b-instruct`, `llama-3.2-3b-instruct`, `deepseek-chat` (V3), `deepseek-reasoner` (R1), `codestral-latest`.
+- **Frontier & Production LLM Lineup**: Native out-of-the-box configuration and aliases for the newest generation of frontier and production models:
+  - **Google Gemini**: `gemini-4-argon`, `gemini-4-carbon`, `gemini-3.8-flash`, `gemini-3.8-live`, `gemini-2.5-pro` (default), `gemini-2.5-flash`.
+  - **OpenAI**: `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna`, `gpt-4o` (default), `o3-mini`, `o4-mini`, `o3`.
+  - **Anthropic**: `claude-opus-5.5`, `claude-sonnet-5.5`, `claude-fable-5.1`, `claude-3-7-sonnet` (default), `claude-3-5-sonnet`.
+  - **DeepSeek & Open-Weights**: `deepseek-v4`, `deepseek-v4.1-flash`, `deepseek-chat`, `deepseek-reasoner`, `llama-4-maverick`, `llama-3.3-70b-instruct`.
+
+---
+
+### 36. Core Standard Library & Project Configuration (`agent.config.json`)
+AgentLang provides a rich built-in standard library and declarative project management:
+```agentlang
+let data = json.parse("{\"status\": \"active\", \"score\": 98}")
+let clean_name = trim("   Agent Alpha   ")
+let upper = to_upper(clean_name)
+let rounded = math.round(3.14159, 2)
+let now = time.now()
+```
+Initialize and configure projects with `agent init`:
+```bash
+agent init my-agent-app
+```
+`agent.config.json`:
+```json
+{
+  "name": "my-agent-app",
+  "version": "0.1.0",
+  "default_model": "gemini-4-argon",
+  "budget_limit_usd": 10.0,
+  "timeout": "30s",
+  "env": {
+    "APP_ENV": "production"
+  }
+}
+```
 
 ---
 
@@ -574,13 +605,14 @@ agent watch main.agt --run
 | `agent watch <file> [--run]` | Watch AgentLang file for changes, auto-evaluating syntax and optionally running the agent pipeline |
 | `agent serve [--mcp \| --http [port] \| --lsp]` | Start an MCP server, HTTP Web Gateway with Playground, or LSP language server |
 | `agent lsp` | Start standard Language Server Protocol (LSP) server over stdio |
+| `agent init [name]` | Scaffold an `agent.config.json` project configuration file |
 | `agent plan "<goal>" [--tools] [--execute]` | Generate or execute a hierarchical multi-step task plan DAG |
 | `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
 | `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
 | `agent checkpoint [list\|show]`| Inspect and list persistent workflow execution checkpoints |
 | `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
 | `agent repl` | Launch interactive REPL environment |
-| `agent check [file]` | Static syntax and semantic verification |
+| `agent check [file]` | Static syntax and semantic verification with human-friendly diagnostics |
 | `agent format [file] [-w]` | Format AgentLang source code |
 | `agent test [target]` | Run test suites |
 | `agent build <file> [flags]` | Validate, transpile (`--target python\|ts`), or dockerize (`--docker`) |
@@ -594,7 +626,7 @@ agent watch main.agt --run
 
 ## 🧪 Testing & Verification
 
-The test suite contains **225 automated tests (207 unit tests + 18 integration tests)** with a **100% pass rate**:
+The test suite contains **233 automated tests (215 unit tests + 18 integration tests)** with a **100% pass rate**:
 
 ```bash
 dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
@@ -602,7 +634,7 @@ dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj -
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 207, Skipped: 0, Total: 207, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 215, Skipped: 0, Total: 215, Duration: 1.0 s - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

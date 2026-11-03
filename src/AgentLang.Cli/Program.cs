@@ -1,6 +1,7 @@
 using AgentLang.AST;
 using AgentLang.Parser;
 using AgentLang.Runtime;
+using AgentLang.Runtime.Configuration;
 using AgentLang.Semantic;
 using AgentLang.Security;
 using AgentLang.Security.Policy;
@@ -20,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.8.1";
+    public const string Version = "0.8.2";
 
     public static async Task<int> Main(string[] args)
     {
@@ -49,6 +50,7 @@ public static class Program
                 "format" => FormatCommand.Run(args),
                 "test" => await TestCommand.RunAsync(args),
                 "doctor" => await DoctorCommand.RunAsync(),
+                "init" => HandleInit(args),
                 "new" => HandleNew(args),
                 "run" => await HandleRunAsync(args),
                 "build" => HandleBuild(args),
@@ -95,6 +97,7 @@ public static class Program
         Console.WriteLine("  test [target]         Run AgentLang test suites");
         Console.WriteLine("  build <file> [flags]  Parse, validate, and optionally compile/transpile an AgentLang program");
         Console.WriteLine("  transpile <file>      Transpile AgentLang (.agt) to Python or TypeScript");
+        Console.WriteLine("  init [name]           Scaffold an agent.config.json project configuration file");
         Console.WriteLine("  new <name>            Scaffold a new AgentLang project");
         Console.WriteLine("  doctor                Diagnose environment, runtime, models, tools, and security");
         Console.WriteLine("  install <pkg> [ver]   Install a package dependency");
@@ -145,6 +148,32 @@ public static class Program
         return 0;
     }
 
+    private static int HandleInit(string[] args)
+    {
+        string name = args.Length > 1 ? args[1] : Path.GetFileName(Directory.GetCurrentDirectory());
+        if (string.IsNullOrWhiteSpace(name) || name == ".") name = "agent-app";
+
+        string targetPath = Path.Combine(Directory.GetCurrentDirectory(), "agent.config.json");
+        if (File.Exists(targetPath))
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"Configuration file 'agent.config.json' already exists at {targetPath}");
+            Console.ResetColor();
+            return 0;
+        }
+
+        var config = ProjectConfig.CreateDefault(name);
+        File.WriteAllText(targetPath, config.ToJson());
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"✓ Initialized AgentLang project configuration: agent.config.json");
+        Console.ResetColor();
+        Console.WriteLine($"  Project Name: {config.Name}");
+        Console.WriteLine($"  Default Model: {config.DefaultModel}");
+        Console.WriteLine($"  Budget Limit: ${config.BudgetLimitUsd}");
+        return 0;
+    }
+
     private static async Task<int> HandleRunAsync(string[] args)
     {
         if (args.Length < 2)
@@ -167,6 +196,12 @@ public static class Program
             Console.WriteLine($"Error: File not found: '{filePath}'");
             Console.ResetColor();
             return 1;
+        }
+
+        var projectConfig = ProjectConfig.FindAndLoad(filePath);
+        if (projectConfig != null)
+        {
+            projectConfig.ApplyEnvironment();
         }
 
         // Handle pre-compiled bytecode (.agtc) execution
@@ -301,6 +336,12 @@ public static class Program
             Console.WriteLine($"Error: File not found: '{filePath}'");
             Console.ResetColor();
             return 1;
+        }
+
+        var projectConfig = ProjectConfig.FindAndLoad(filePath);
+        if (projectConfig != null)
+        {
+            projectConfig.ApplyEnvironment();
         }
 
         string source = File.ReadAllText(filePath);
@@ -524,6 +565,12 @@ public static class Program
             return 1;
         }
 
+        var projectConfig = ProjectConfig.FindAndLoad(filePath);
+        if (projectConfig != null)
+        {
+            projectConfig.ApplyEnvironment();
+        }
+
         string source = File.ReadAllText(filePath);
         var sourceText = new SourceText(source, filePath);
 
@@ -744,6 +791,12 @@ public static class Program
             Console.WriteLine($"Error: File not found: '{filePath}'");
             Console.ResetColor();
             return 1;
+        }
+
+        var projectConfig = ProjectConfig.FindAndLoad(filePath);
+        if (projectConfig != null)
+        {
+            projectConfig.ApplyEnvironment();
         }
 
         string outFile = Path.ChangeExtension(filePath, ".agtc");

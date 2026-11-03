@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] — 2026-11-03
+
+### Added
+- **Core Standard Library Expansion (`AgentLang.Runtime.Stdlib`)**:
+  - **`text` / String Utilities**: `trim()`, `split()`, `join()`, `replace()`, `to_lower()`, `to_upper()`, `starts_with()`, `ends_with()`, `contains()`, `len()`. Available both as module calls (`text.trim(s)`) and concise global primitives (`trim(s)`).
+  - **`json` Utilities**: `json.parse(str)`, `json.stringify(obj)`, and non-throwing `json.is_valid(str)` with recursive conversion to native dictionary and list primitives.
+  - **`math` Utilities**: `math.min(a, b)`, `math.max(a, b)`, `math.round(num, decimals)`, `math.abs(num)`, `math.clamp(val, min, max)`, `floor()`, `ceil()`.
+  - **`time` Utilities**: `time.now()` (ISO 8601 UTC), `time.timestamp()` (epoch ms), and `time.elapsed_ms(startTime)`.
+  - **`collections` Utilities**: `collections.len(coll)`, `collections.contains(coll, item)`, `collections.join(coll, delim)`, `collections.append(coll, item)`, `collections.reverse(coll)`.
+- **Project Configuration System (`agent.config.json` / `agent.json`)**:
+  - `ProjectConfig`: Project metadata, default model configuration (`default_model`), global execution timeouts (`timeout`), budget limits (`budget_limit_usd`), and environment variables (`env`).
+  - Added CLI command `agent init [name]` to scaffold a standard project configuration file.
+  - Automatic discovery: CLI commands (`run`, `check`, `transpile`, `compile`) discover and apply configuration automatically from current or parent directories.
+- **Human-Friendly Compiler Diagnostics ("Did You Mean?")**:
+  - Rust-style CLI diagnostic output with source line preview, line number margins, exact column carets (`^^^^`), and contextual suggestions (`= suggestion: did you mean '...'?`).
+  - Levenshtein-based typo tolerance for tool names, agent names, permissions, and built-in modules.
+  - Linter warnings: `AL1002` for empty agents without tools/tasks.
+- **First-Class Native DeepSeek Provider (`DeepSeekModelProvider`)**:
+  - Native integration with the DeepSeek API endpoint (`https://api.deepseek.com/chat/completions`) using `DEEPSEEK_API_KEY`.
+  - Supports `deepseek-v4`, `deepseek-v4.1-flash`, `deepseek-chat`, and `deepseek-reasoner`.
+- **Frontier Catalog Completeness**:
+  - Official Google Gemini 4 (`gemini-4-argon`, `gemini-4-carbon`), Gemini 3.8 (`gemini-3.8-flash`, `gemini-3.8-live`).
+  - Official OpenAI GPT-6 (`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna`), `o4-mini`, `o3-pro`.
+  - Official Anthropic Claude 5.5 (`claude-opus-5.5`, `claude-sonnet-5.5`, `claude-haiku-5.5`), `claude-fable-5.1`.
+  - Official Meta Llama 4 (`llama-4-maverick`, `llama-4-scout`).
+  - Clean aliases (`argon`, `carbon`, `gemini4`, `astra`, `gpt6`, `sol`, `luna`, `claude5`, `opus5`, `fable`, `deepseek`, `deepseek4`, `llama4`).
+- **LSP Server Advanced Tooling (`AgentLang.VM.Lsp`)**:
+  - **Rename Symbol (`textDocument/rename`)**: Renames agents, schemas, workflows, or variables across the entire file with exact word-boundary workspace edits.
+  - **Find All References (`textDocument/references`)**: Locates all declarations and invocations of any symbol in the document.
+- **Testing**:
+  - Added `V082Tests.cs` (8 unit tests covering frontier catalog, DeepSeek provider, text/json/math/time standard library, project config, LSP rename, LSP references, and compiler diagnostics).
+  - Test suite expanded to **233 tests** (215 unit tests + 18 integration tests) with a **100% pass rate**.
+
+---
+
 ## [0.8.1] — 2026-10-28
 
 ### Added

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AgentLang.AST;
 
 namespace AgentLang.VM.Lsp;
@@ -103,6 +104,14 @@ public sealed class AgentLspServer
                 await HandleCodeActionAsync(id, root, ct);
                 break;
 
+            case "textDocument/rename":
+                await HandleRenameAsync(id, root, ct);
+                break;
+
+            case "textDocument/references":
+                await HandleReferencesAsync(id, root, ct);
+                break;
+
             case "shutdown":
                 await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
                 break;
@@ -137,12 +146,14 @@ public sealed class AgentLspServer
                 documentSymbolProvider = true,
                 definitionProvider = true,
                 documentFormattingProvider = true,
-                codeActionProvider = true
+                codeActionProvider = true,
+                renameProvider = true,
+                referencesProvider = true
             },
             serverInfo = new
             {
                 name = "agentlang-lsp",
-                version = "0.8.1"
+                version = "0.8.2"
             }
         };
 
@@ -243,23 +254,26 @@ public sealed class AgentLspServer
         // 2. Built-in LLM Model Names (Official Production & Frontier Models)
         string[] models =
         [
-            // Google Gemini (Official)
-            "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
-            "gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-4-argon",
-            "gemini-2.0-flash",
+            // Google Gemini (Frontier & Production)
+            "gemini-4-argon", "gemini-4-carbon",
+            "gemini-3.8-flash", "gemini-3.8-live", "gemini-3.7-flash", "gemini-3.1-pro-preview",
+            "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash",
 
-            // OpenAI (Official)
-            "gpt-4o", "gpt-4o-mini", "gpt-4.5-preview",
-            "o3-mini", "o3", "o1", "o1-mini",
+            // OpenAI (Frontier & Production)
+            "gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna",
+            "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini",
+            "o3", "o3-pro", "o3-mini", "o4-mini", "o1", "o1-mini",
 
-            // Anthropic Claude (Official)
+            // Anthropic Claude (Frontier & Production)
+            "claude-opus-5.5", "claude-sonnet-5.5", "claude-haiku-5.5", "claude-fable-5.1",
             "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus",
 
-            // Meta Llama (Official)
+            // Meta Llama (Frontier & Production)
+            "llama-4-maverick", "llama-4-scout",
             "llama-3.3-70b-instruct", "llama-3.2-3b-instruct", "llama3.2", "llama-3.1-8b-instruct",
 
-            // DeepSeek (Official API)
-            "deepseek-chat", "deepseek-reasoner",
+            // DeepSeek (Frontier & Production)
+            "deepseek-v4", "deepseek-v4.1-flash", "deepseek-chat", "deepseek-reasoner",
 
             // Mistral & Qwen (Official)
             "mistral-large-latest", "codestral-latest", "mistral:7b",
@@ -731,5 +745,111 @@ public sealed class AgentLspServer
         }
 
         return new LspRange(startLine, startChar, endLine, endChar);
+    }
+
+    private async Task HandleRenameAsync(object? id, JsonElement root, CancellationToken ct)
+    {
+        if (root.TryGetProperty("params", out var p) &&
+            p.TryGetProperty("textDocument", out var td) &&
+            td.TryGetProperty("uri", out var uriProp) &&
+            p.TryGetProperty("position", out var posProp) &&
+            p.TryGetProperty("newName", out var newNameProp))
+        {
+            string uri = uriProp.GetString() ?? "";
+            int line = posProp.GetProperty("line").GetInt32();
+            int character = posProp.GetProperty("character").GetInt32();
+            string newName = newNameProp.GetString() ?? "";
+
+            string? text = Documents.GetDocumentText(uri);
+            if (!string.IsNullOrEmpty(text) && !string.IsNullOrWhiteSpace(newName))
+            {
+                string word = GetWordAtPosition(text, line, character);
+                if (!string.IsNullOrWhiteSpace(word))
+                {
+                    var edits = FindSymbolEdits(text, word, newName);
+                    var workspaceEdit = new LspWorkspaceEdit
+                    {
+                        Changes = new Dictionary<string, List<LspTextEdit>>
+                        {
+                            [uri] = edits
+                        }
+                    };
+
+                    var resp = LspResponse.Success(id, workspaceEdit);
+                    await _transport.SendMessageAsync(JsonSerializer.Serialize(resp), ct);
+                    return;
+                }
+            }
+        }
+
+        await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
+    }
+
+    private async Task HandleReferencesAsync(object? id, JsonElement root, CancellationToken ct)
+    {
+        var locations = new List<LspLocation>();
+
+        if (root.TryGetProperty("params", out var p) &&
+            p.TryGetProperty("textDocument", out var td) &&
+            td.TryGetProperty("uri", out var uriProp) &&
+            p.TryGetProperty("position", out var posProp))
+        {
+            string uri = uriProp.GetString() ?? "";
+            int line = posProp.GetProperty("line").GetInt32();
+            int character = posProp.GetProperty("character").GetInt32();
+
+            string? text = Documents.GetDocumentText(uri);
+            if (!string.IsNullOrEmpty(text))
+            {
+                string word = GetWordAtPosition(text, line, character);
+                if (!string.IsNullOrWhiteSpace(word))
+                {
+                    locations = FindSymbolLocations(uri, text, word);
+                }
+            }
+        }
+
+        var response = LspResponse.Success(id, locations);
+        await _transport.SendMessageAsync(JsonSerializer.Serialize(response), ct);
+    }
+
+    private static List<LspTextEdit> FindSymbolEdits(string text, string symbolName, string newName)
+    {
+        var edits = new List<LspTextEdit>();
+        var pattern = $@"\b{Regex.Escape(symbolName)}\b";
+        var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+
+        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
+        {
+            var line = lines[lineIdx];
+            var matches = Regex.Matches(line, pattern);
+            foreach (Match match in matches)
+            {
+                var range = new LspRange(lineIdx, match.Index, lineIdx, match.Index + match.Length);
+                edits.Add(new LspTextEdit(range, newName));
+            }
+        }
+
+        return edits;
+    }
+
+    private static List<LspLocation> FindSymbolLocations(string uri, string text, string symbolName)
+    {
+        var locations = new List<LspLocation>();
+        var pattern = $@"\b{Regex.Escape(symbolName)}\b";
+        var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+
+        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
+        {
+            var line = lines[lineIdx];
+            var matches = Regex.Matches(line, pattern);
+            foreach (Match match in matches)
+            {
+                var range = new LspRange(lineIdx, match.Index, lineIdx, match.Index + match.Length);
+                locations.Add(new LspLocation(uri, range));
+            }
+        }
+
+        return locations;
     }
 }

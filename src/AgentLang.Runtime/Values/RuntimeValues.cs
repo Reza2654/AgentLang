@@ -73,6 +73,9 @@ public sealed class BuiltinFunctionValue
         Handler = args => Task.FromResult(syncHandler(args));
     }
 
+    public Task<object?> ExecuteAsync(IReadOnlyList<object?> args) => Handler(args);
+    public object? Execute(IReadOnlyList<object?> args) => Handler(args).GetAwaiter().GetResult();
+
     public override string ToString() => $"[BuiltinFunction: {Name}]";
 }
 

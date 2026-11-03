@@ -2352,6 +2352,32 @@ public sealed class AgentLangRuntime
             {
                 return tv.Result;
             }
+
+            // Built-in standard library function invocation (e.g. len, trim, split, join, round, min, max, json_parse, time_now)
+            var stdArgs = new List<object?>();
+            foreach (var arg in call.Arguments)
+            {
+                stdArgs.Add(await EvaluateExpressionAsync(arg, scope, ct));
+            }
+            if (StandardLibrary.TryInvoke(calleeId.Name, null, stdArgs, out var stdFuncResult))
+            {
+                return stdFuncResult;
+            }
+        }
+
+        // Built-in standard library module invocation (e.g. text.trim, json.parse, math.round, time.now, collections.len)
+        if (call.Callee is MemberAccessExpressionNode stdMember &&
+            stdMember.Target is IdentifierExpressionNode targetModId)
+        {
+            var stdModArgs = new List<object?>();
+            foreach (var arg in call.Arguments)
+            {
+                stdModArgs.Add(await EvaluateExpressionAsync(arg, scope, ct));
+            }
+            if (StandardLibrary.TryInvoke(targetModId.Name, stdMember.MemberName, stdModArgs, out var stdModResult))
+            {
+                return stdModResult;
+            }
         }
 
         // AI Operations invocation if callee was parsed as identifier
