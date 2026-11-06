@@ -8,7 +8,18 @@ public static class CheckCommand
 {
     public static int Run(string[] args)
     {
-        string target = args.Length > 1 ? args[1] : ".";
+        bool jsonFormat = args.Any(a => a is "--json" or "-j") ||
+                          args.Zip(args.Skip(1), (a, b) => a == "--format" && b.Equals("json", StringComparison.OrdinalIgnoreCase)).Any(x => x);
+
+        string target = ".";
+        foreach (var arg in args.Skip(1))
+        {
+            if (arg is "--json" or "-j" or "--format" || arg.Equals("json", StringComparison.OrdinalIgnoreCase))
+                continue;
+            target = arg;
+            break;
+        }
+
         var files = new List<string>();
 
         if (File.Exists(target))
@@ -22,24 +33,52 @@ public static class CheckCommand
         }
         else
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Error: Target '{target}' does not exist.");
-            Console.ResetColor();
+            if (jsonFormat)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    error = $"Target '{target}' does not exist.",
+                    files = Array.Empty<object>()
+                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Error: Target '{target}' does not exist.");
+                Console.ResetColor();
+            }
             return 1;
         }
 
         if (files.Count == 0)
         {
-            Console.WriteLine($"No .agt or .agent files found in '{target}'.");
+            if (jsonFormat)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    success = true,
+                    message = $"No .agt or .agent files found in '{target}'.",
+                    files = Array.Empty<object>()
+                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            else
+            {
+                Console.WriteLine($"No .agt or .agent files found in '{target}'.");
+            }
             return 0;
         }
 
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"Checking {files.Count} AgentLang file(s)...\n");
-        Console.ResetColor();
+        if (!jsonFormat)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"Checking {files.Count} AgentLang file(s)...\n");
+            Console.ResetColor();
+        }
 
         int totalErrors = 0;
         int totalWarnings = 0;
+        var jsonFileReports = new List<object>();
 
         foreach (var file in files)
         {
@@ -51,36 +90,73 @@ public static class CheckCommand
             var sem = new SemanticAnalyzer();
             sem.Analyze(program);
 
-            int errors = parser.Diagnostics.Errors.Count() + sem.Diagnostics.Errors.Count();
-            int warnings = parser.Diagnostics.Warnings.Count() + sem.Diagnostics.Warnings.Count();
+            var allDiagnostics = parser.Diagnostics.Concat(sem.Diagnostics).ToList();
+            int errors = allDiagnostics.Count(d => d.Severity == DiagnosticSeverity.Error);
+            int warnings = allDiagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning);
 
             totalErrors += errors;
             totalWarnings += warnings;
 
             string relPath = Path.GetRelativePath(Directory.GetCurrentDirectory(), file);
 
-            if (errors == 0 && warnings == 0)
+            if (jsonFormat)
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("✓ ");
-                Console.ResetColor();
-                Console.WriteLine(relPath);
+                jsonFileReports.Add(new
+                {
+                    file = relPath,
+                    errors,
+                    warnings,
+                    diagnostics = allDiagnostics.Select(d => new
+                    {
+                        code = d.Id,
+                        severity = d.Severity.ToString().ToLowerInvariant(),
+                        message = d.Message,
+                        line = d.Span.Start.Line,
+                        column = d.Span.Start.Column,
+                        length = d.Span.Length,
+                        snippet = d.Span.Start.Line > 0 ? source.GetLineText(d.Span.Start.Line) : string.Empty,
+                        suggestion = d.Suggestion
+                    })
+                });
             }
             else
             {
-                Console.ForegroundColor = errors > 0 ? ConsoleColor.Red : ConsoleColor.Yellow;
-                Console.Write(errors > 0 ? "✗ " : "⚠ ");
-                Console.ResetColor();
-                Console.WriteLine($"{relPath} ({errors} errors, {warnings} warnings)");
-
-                foreach (var diag in parser.Diagnostics.Concat(sem.Diagnostics))
+                if (errors == 0 && warnings == 0)
                 {
-                    Console.ForegroundColor = diag.Severity == DiagnosticSeverity.Error ? ConsoleColor.Red : ConsoleColor.Yellow;
-                    Console.WriteLine(source.FormatDiagnostic(diag));
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write("✓ ");
                     Console.ResetColor();
-                    Console.WriteLine();
+                    Console.WriteLine(relPath);
+                }
+                else
+                {
+                    Console.ForegroundColor = errors > 0 ? ConsoleColor.Red : ConsoleColor.Yellow;
+                    Console.Write(errors > 0 ? "✗ " : "⚠ ");
+                    Console.ResetColor();
+                    Console.WriteLine($"{relPath} ({errors} errors, {warnings} warnings)");
+
+                    foreach (var diag in allDiagnostics)
+                    {
+                        Console.ForegroundColor = diag.Severity == DiagnosticSeverity.Error ? ConsoleColor.Red : ConsoleColor.Yellow;
+                        Console.WriteLine(source.FormatDiagnostic(diag));
+                        Console.ResetColor();
+                        Console.WriteLine();
+                    }
                 }
             }
+        }
+
+        if (jsonFormat)
+        {
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                success = totalErrors == 0,
+                total_files = files.Count,
+                total_errors = totalErrors,
+                total_warnings = totalWarnings,
+                files = jsonFileReports
+            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            return totalErrors == 0 ? 0 : 1;
         }
 
         Console.WriteLine();

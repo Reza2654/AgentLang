@@ -32,6 +32,9 @@ public sealed class ProjectConfig
     [JsonPropertyName("tools")]
     public List<string> Tools { get; set; } = [];
 
+    [JsonPropertyName("dependencies")]
+    public Dictionary<string, string> Dependencies { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public static ProjectConfig? FindAndLoad(string? startDirectory = null)
     {
         string dir = string.IsNullOrWhiteSpace(startDirectory)
@@ -94,7 +97,11 @@ public sealed class ProjectConfig
             {
                 ["ENVIRONMENT"] = "development"
             },
-            Tools = ["web_search", "document_summary"]
+            Tools = ["web_search", "document_summary"],
+            Dependencies = new Dictionary<string, string>
+            {
+                ["stdlib"] = "latest"
+            }
         };
     }
 

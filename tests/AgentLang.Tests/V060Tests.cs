@@ -26,18 +26,9 @@ public class V060Tests
         Assert.False(semantic.Diagnostics.HasErrors, string.Join("; ", semantic.Diagnostics.Errors));
 
         var sw = new StringWriter();
-        var originalOut = Console.Out;
-        try
-        {
-            Console.SetOut(sw);
-            var runtime = new AgentLangRuntime(output: sw);
-            await runtime.ExecuteProgramAsync(program);
-            return sw.ToString().Trim();
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
+        var runtime = new AgentLangRuntime(output: sw);
+        await runtime.ExecuteProgramAsync(program);
+        return sw.ToString().Trim();
     }
 
     [Fact]

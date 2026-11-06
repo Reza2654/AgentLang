@@ -197,11 +197,25 @@ public static class ChatCommand
             // Normal chat message
             try
             {
-                string reply = await runtime.ReActEngine.ChatAsync(agentInstance, trimmed, runtime.GlobalScope);
                 Console.ForegroundColor = ConsoleColor.Magenta;
                 Console.Write($"\n🤖 {agentInstance.Name} > ");
                 Console.ResetColor();
-                Console.WriteLine(reply + "\n");
+
+                bool streamed = false;
+                runtime.TokenStreamCallback = token =>
+                {
+                    streamed = true;
+                    Console.Write(token);
+                };
+
+                string reply = await runtime.ReActEngine.ChatAsync(agentInstance, trimmed, runtime.GlobalScope);
+
+                runtime.TokenStreamCallback = null;
+                if (!streamed)
+                {
+                    Console.WriteLine(reply);
+                }
+                Console.WriteLine("\n");
             }
             catch (Exception ex)
             {

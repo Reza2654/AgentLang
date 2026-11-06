@@ -353,7 +353,9 @@ public class V082Tests
         Assert.Contains("web_search", error.Suggestion);
 
         string formatted = sourceText.FormatDiagnostic(error);
-        Assert.Contains("Error: Unknown tool 'websearch'", formatted);
+        Assert.Contains("Error", formatted);
+        Assert.Contains("AL2006", formatted);
+        Assert.Contains("Unknown tool 'websearch'", formatted);
         Assert.Contains("test.agt:3:", formatted);
         Assert.Contains("^^^^^^^^^", formatted);
         Assert.Contains("= suggestion: did you mean 'web_search'?", formatted);

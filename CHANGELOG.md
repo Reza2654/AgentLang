@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] — 2026-11-06
+
+### Added
+- **AI & Human-Readable Diagnostics Engine**:
+  - **Machine-Readable Diagnostics (`--json` / `--format json`)**: `agent check [path] --json` emits structured JSON diagnostics containing `code`, `severity`, `message`, `file`, `line`, `column`, `length`, `snippet`, and `suggestion` designed for automated ingestion and fixes by AI agents and IDE tooling.
+  - **Standardized Error Architecture**: Diagnostics and authentication errors include distinct identifiers (`[AL-AUTH-001]` through `[AL-AUTH-004]`, `[AL2006]`, `[AL-IMPORT-201]`) visible in both formatted headers and structured outputs.
+  - **Actionable Remediation Guidance**: Detailed "How to fix" hints specify exact environment variables and `agent.config.json` fields.
+- **Fail-Fast & Zero-Mock Authentication**:
+  - Eliminated silent mock fallback responses in production CLI execution: missing credentials for OpenAI, Gemini, Claude, or DeepSeek trigger immediate, descriptive failure with explicit setup instructions.
+  - Preserved deterministic offline mock testing for test suites and CI/CD via explicit `AllowMockFallback`.
+- **Real-Time Token Streaming Engine (Word-by-Word Like ChatGPT)**:
+  - **`IModelProvider.StreamAsync`**: Progressive asynchronous token streaming across all model providers.
+  - **Frontier Provider Streaming**: Native SSE streaming for OpenAI (`stream: true`), DeepSeek, Anthropic Claude (`content_block_delta`), Google Gemini (`streamGenerateContent?alt=sse`), and Ollama NDJSON.
+  - **Interactive Terminal Streaming**: `agent chat` and `agent run --stream` output tokens progressively to the console in real-time as they generate.
+  - **HTTP Server SSE Endpoint**: `agent serve --http` streams live token events via Server-Sent Events (`text/event-stream`) on `/api/v1/stream`.
+- **Multi-File Imports & Package Ecosystem**:
+  - **Cross-File Symbol Resolution**: `SemanticAnalyzer` parses imported files and resolves declared agents, teams, swarms, tools, and functions across the module tree.
+  - **Module Package Resolution**: `import` supports local relative paths (`./tools.agent`) and package modules (`./agent_modules/<package>/main.agent`).
+  - **Package Management CLI (`agent install`)**: Restores and synchronizes dependencies from `agent.config.json` into `./agent_modules/` and updates `agent.lock` with SHA-256 integrity checksums.
+  - **Dependency Tracking**: Added `dependencies` dictionary to `ProjectConfig`.
+- **Testing**:
+  - Added `V090Tests.cs` covering JSON diagnostics, fail-fast authentication, token streaming, SSE formatting, multi-file imports, and dependency management.
+  - Test suite expanded to **241 tests** (223 unit tests + 18 integration tests) with a **100% pass rate**.
+
+---
+
 ## [0.8.2] — 2026-11-03
 
 ### Added

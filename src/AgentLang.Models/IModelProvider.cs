@@ -27,6 +27,14 @@ public interface IModelProvider
     string ProviderId { get; }
     bool CanHandle(string modelName);
     Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default);
+    async IAsyncEnumerable<string> StreamAsync(ModelRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var res = await GenerateAsync(request, ct);
+        if (res.Success && !string.IsNullOrEmpty(res.Content))
+        {
+            yield return res.Content;
+        }
+    }
 }
 
 public sealed class ModelRegistry
@@ -38,17 +46,17 @@ public sealed class ModelRegistry
     public IReadOnlyDictionary<string, string> Aliases => _aliases;
     public IReadOnlyList<IModelProvider> Providers => _providers;
 
-    public ModelRegistry()
+    public ModelRegistry(bool? allowMockFallback = null)
     {
         var mock = new MockModelProvider();
         _providers.Add(mock);
         _defaultProvider = mock;
 
         // Register default REST providers
-        _providers.Add(new OpenAiModelProvider());
-        _providers.Add(new GeminiModelProvider());
-        _providers.Add(new AnthropicModelProvider());
-        _providers.Add(new DeepSeekModelProvider());
+        _providers.Add(new OpenAiModelProvider(allowMockFallback: allowMockFallback));
+        _providers.Add(new GeminiModelProvider(allowMockFallback: allowMockFallback));
+        _providers.Add(new AnthropicModelProvider(allowMockFallback: allowMockFallback));
+        _providers.Add(new DeepSeekModelProvider(allowMockFallback: allowMockFallback));
         _providers.Add(new OllamaModelProvider());
 
         // Register official frontier model aliases

@@ -162,10 +162,18 @@ public sealed class AgentVirtualMachine
         using var span = Tracer.StartSpan($"vm.stream.execute:{Path.GetFileName(filePath)}");
 
         Action<StatementNode, RuntimeScope>? prevStep = Runtime.StepHook;
+        Action<string>? prevToken = Runtime.TokenStreamCallback;
+
         Runtime.StepHook = (stmt, scope) =>
         {
             prevStep?.Invoke(stmt, scope);
             _ = streamChannel.EmitThoughtAsync($"Step [{stmt.Span.Start.Line}]: {stmt.GetType().Name}", "Runtime", ct);
+        };
+
+        Runtime.TokenStreamCallback = token =>
+        {
+            prevToken?.Invoke(token);
+            _ = streamChannel.EmitTokenAsync(token, "LLM", ct);
         };
 
         try
@@ -182,6 +190,7 @@ public sealed class AgentVirtualMachine
         finally
         {
             Runtime.StepHook = prevStep;
+            Runtime.TokenStreamCallback = prevToken;
             streamChannel.Complete();
         }
     }

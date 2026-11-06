@@ -31,6 +31,7 @@ public sealed class AgentReActEngine
     }
 
     public Action<string, string, int, double>? OnExecutionCompleted { get; set; }
+    public Action<string>? TokenStreamCallback { get; set; }
 
     public async Task<AgentReActResult> SolveAsync(
         AgentValue agent,
@@ -119,6 +120,13 @@ Final Answer: <your final response>
             if (provider is MockModelProvider || primaryModel.Equals("mock", StringComparison.OrdinalIgnoreCase))
             {
                 stepResponse = await GenerateHeuristicReActStepAsync(agent, input, stepIndex, steps, availableTools, ct);
+                if (TokenStreamCallback != null)
+                {
+                    foreach (var token in stepResponse.Split(' '))
+                    {
+                        TokenStreamCallback(token + " ");
+                    }
+                }
             }
             else
             {
@@ -128,12 +136,32 @@ Final Answer: <your final response>
                     SystemInstruction: systemPrompt,
                     Temperature: agent.Temperature ?? 0.2);
 
-                var res = await provider.GenerateAsync(req, ct);
-                if (!res.Success)
+                if (TokenStreamCallback != null)
                 {
-                    return new AgentReActResult(false, null, steps, sw.Elapsed, $"Model generation error: {res.ErrorMessage}");
+                    var sb = new System.Text.StringBuilder();
+                    try
+                    {
+                        await foreach (var token in provider.StreamAsync(req, ct))
+                        {
+                            sb.Append(token);
+                            TokenStreamCallback(token);
+                        }
+                        stepResponse = sb.ToString();
+                    }
+                    catch (Exception ex)
+                    {
+                        return new AgentReActResult(false, null, steps, sw.Elapsed, $"Model streaming error: {ex.Message}");
+                    }
                 }
-                stepResponse = res.Content;
+                else
+                {
+                    var res = await provider.GenerateAsync(req, ct);
+                    if (!res.Success)
+                    {
+                        return new AgentReActResult(false, null, steps, sw.Elapsed, $"Model generation error: {res.ErrorMessage}");
+                    }
+                    stepResponse = res.Content;
+                }
             }
 
             conversationTrace.Add(stepResponse);

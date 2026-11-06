@@ -90,7 +90,7 @@ public class V080Tests
 
         var serverInfo = result.GetProperty("serverInfo");
         Assert.Equal("agentlang-lsp", serverInfo.GetProperty("name").GetString());
-        Assert.StartsWith("0.8.", serverInfo.GetProperty("version").GetString());
+        Assert.StartsWith("0.", serverInfo.GetProperty("version").GetString());
     }
 
     // =========================================================================

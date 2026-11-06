@@ -36,6 +36,22 @@ public sealed class MockModelProvider : IModelProvider
         ));
     }
 
+    public async IAsyncEnumerable<string> StreamAsync(
+        ModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var response = await GenerateAsync(request, ct);
+        if (!response.Success || string.IsNullOrEmpty(response.Content)) yield break;
+
+        var tokens = response.Content.Split(' ');
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            if (ct.IsCancellationRequested) yield break;
+            yield return (i == 0 ? "" : " ") + tokens[i];
+            await Task.Delay(10, ct);
+        }
+    }
+
     private static string GenerateDeterministicResponse(string prompt)
     {
         string p = prompt.ToLowerInvariant();

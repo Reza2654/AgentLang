@@ -56,6 +56,11 @@ public sealed class AgentLangRuntime
     private readonly Dictionary<string, RuntimeScope> _loadedModules = new(StringComparer.OrdinalIgnoreCase);
 
     public Action<StatementNode, RuntimeScope>? StepHook { get; set; }
+    public Action<string>? TokenStreamCallback
+    {
+        get => _reactEngine.TokenStreamCallback;
+        set => _reactEngine.TokenStreamCallback = value;
+    }
     public Func<string, bool>? CapabilityCheck { get; set; }
     public long InstructionStepCount { get; private set; }
     public string? CurrentSourceFile { get; set; }
@@ -3813,8 +3818,14 @@ public sealed class AgentLangRuntime
                 resolvedPath += ".agt";
             else if (File.Exists(resolvedPath + ".agent"))
                 resolvedPath += ".agent";
+            else if (File.Exists(Path.Combine(baseDir, "agent_modules", rawPath, "main.agent")))
+                resolvedPath = Path.Combine(baseDir, "agent_modules", rawPath, "main.agent");
+            else if (File.Exists(Path.Combine(baseDir, "agent_modules", rawPath + ".agent")))
+                resolvedPath = Path.Combine(baseDir, "agent_modules", rawPath + ".agent");
+            else if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "agent_modules", rawPath, "main.agent")))
+                resolvedPath = Path.Combine(Directory.GetCurrentDirectory(), "agent_modules", rawPath, "main.agent");
             else
-                throw new AgentLangRuntimeException($"Module file not found: '{rawPath}' (searched at '{resolvedPath}')", errorCode: "MOD404");
+                throw new AgentLangRuntimeException($"[AL-IMPORT-201] Module file not found: '{rawPath}' (searched at '{resolvedPath}' and './agent_modules/{rawPath}')", errorCode: "MOD404");
         }
 
         string fullPath = Path.GetFullPath(resolvedPath);

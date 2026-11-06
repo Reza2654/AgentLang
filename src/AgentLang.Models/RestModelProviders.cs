@@ -13,12 +13,21 @@ public sealed class OpenAiModelProvider : IModelProvider
     private string? _dynamicApiKey;
     private string _defaultModel = "gpt-4o";
     private readonly string _endpoint;
+    public bool? AllowMockFallback { get; set; }
 
-    public OpenAiModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null)
+    private bool ShouldAllowMockFallback =>
+        AllowMockFallback ?? (
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_OFFLINE_MOCK"), "1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase) ||
+            AppDomain.CurrentDomain.FriendlyName.Contains("testhost", StringComparison.OrdinalIgnoreCase)
+        );
+
+    public OpenAiModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null, bool? allowMockFallback = null)
     {
         _apiKey = apiKey ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         _endpoint = endpoint ?? Environment.GetEnvironmentVariable("OPENAI_ENDPOINT") ?? "https://api.openai.com/v1/chat/completions";
         _httpClient = httpClient ?? new HttpClient();
+        AllowMockFallback = allowMockFallback;
     }
 
     public void SetApiKey(string key) => _dynamicApiKey = key;
@@ -40,15 +49,29 @@ public sealed class OpenAiModelProvider : IModelProvider
     public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default)
     {
         string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("GPT", StringComparison.OrdinalIgnoreCase) ||
+                             request.ModelName.Equals("openai", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
         if (string.IsNullOrWhiteSpace(key))
         {
-            // If API key is not configured, return an informative fallback response
-            return new ModelResponse(
-                $"[OpenAI Mock Response: OPENAI_API_KEY not set] Processed '{request.Prompt}' using model '{request.ModelName}'",
-                request.ModelName,
-                TokensUsed: 42,
-                Latency: TimeSpan.FromMilliseconds(50),
-                Success: true
+            if (ShouldAllowMockFallback)
+            {
+                return new ModelResponse(
+                    $"[OpenAI Mock Response: OPENAI_API_KEY not set] Processed '{request.Prompt}' using model '{actualModel}'",
+                    actualModel,
+                    TokensUsed: 42,
+                    Latency: TimeSpan.FromMilliseconds(50),
+                    Success: true
+                );
+            }
+
+            return ModelResponse.Failed(
+                $"[AL-AUTH-001] Missing OpenAI API Key: Model '{actualModel}' requires 'OPENAI_API_KEY'. " +
+                "Please configure your key via environment variable (PowerShell: $env:OPENAI_API_KEY = \"sk-...\"; Bash: export OPENAI_API_KEY=\"sk-...\") " +
+                "or declare it in 'agent.config.json'.",
+                actualModel
             );
         }
 
@@ -57,11 +80,6 @@ public sealed class OpenAiModelProvider : IModelProvider
         {
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-
-            string actualModel = request.ModelName.Equals("GPT", StringComparison.OrdinalIgnoreCase) ||
-                                 request.ModelName.Equals("openai", StringComparison.OrdinalIgnoreCase)
-                ? _defaultModel
-                : request.ModelName;
 
             var messages = new List<object>();
             if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
@@ -108,7 +126,84 @@ public sealed class OpenAiModelProvider : IModelProvider
         }
         catch (Exception ex)
         {
-            return ModelResponse.Failed(ex.Message, request.ModelName);
+            return ModelResponse.Failed(ex.Message, actualModel);
+        }
+    }
+
+    public async IAsyncEnumerable<string> StreamAsync(
+        ModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("GPT", StringComparison.OrdinalIgnoreCase) ||
+                             request.ModelName.Equals("openai", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (ShouldAllowMockFallback)
+            {
+                yield return $"[OpenAI Mock Response: OPENAI_API_KEY not set] Processed '{request.Prompt}'";
+                yield break;
+            }
+
+            throw new InvalidOperationException($"[AL-AUTH-001] Missing OpenAI API Key: Model '{actualModel}' requires 'OPENAI_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
+        }
+
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+        {
+            messages.Add(new { role = "system", content = request.SystemInstruction });
+        }
+        messages.Add(new { role = "user", content = request.Prompt });
+
+        var payload = new
+        {
+            model = actualModel,
+            messages = messages,
+            temperature = request.Temperature,
+            stream = true
+        };
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            string err = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"OpenAI API HTTP {response.StatusCode}: {err}");
+        }
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        while (!ct.IsCancellationRequested)
+        {
+            string? line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+            line = line.Trim();
+            if (line.StartsWith("data: "))
+            {
+                string data = line[6..].Trim();
+                if (data == "[DONE]") break;
+                if (string.IsNullOrEmpty(data)) continue;
+
+                using var doc = JsonDocument.Parse(data);
+                if (doc.RootElement.TryGetProperty("choices", out var choices) &&
+                    choices.GetArrayLength() > 0 &&
+                    choices[0].TryGetProperty("delta", out var delta) &&
+                    delta.TryGetProperty("content", out var contentElem))
+                {
+                    string? token = contentElem.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        yield return token;
+                    }
+                }
+            }
         }
     }
 }
@@ -120,11 +215,20 @@ public sealed class GeminiModelProvider : IModelProvider
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
     private string _defaultModel = "gemini-2.5-pro";
+    public bool? AllowMockFallback { get; set; }
 
-    public GeminiModelProvider(string? apiKey = null, HttpClient? httpClient = null)
+    private bool ShouldAllowMockFallback =>
+        AllowMockFallback ?? (
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_OFFLINE_MOCK"), "1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase) ||
+            AppDomain.CurrentDomain.FriendlyName.Contains("testhost", StringComparison.OrdinalIgnoreCase)
+        );
+
+    public GeminiModelProvider(string? apiKey = null, HttpClient? httpClient = null, bool? allowMockFallback = null)
     {
         _apiKey = apiKey ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
         _httpClient = httpClient ?? new HttpClient();
+        AllowMockFallback = allowMockFallback;
     }
 
     public void SetApiKey(string key) => _dynamicApiKey = key;
@@ -143,35 +247,45 @@ public sealed class GeminiModelProvider : IModelProvider
     public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default)
     {
         string? apiKey = GetEffectiveApiKey();
+        string envModel = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "";
+        string actualModel;
+
+        if (request.ModelName.Equals("Gemini", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("google", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("gemini-pro", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("gemini-flash", StringComparison.OrdinalIgnoreCase))
+        {
+            actualModel = !string.IsNullOrWhiteSpace(envModel) ? envModel : _defaultModel;
+        }
+        else
+        {
+            actualModel = request.ModelName;
+        }
+
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            return new ModelResponse(
-                $"[Gemini Mock Response: GEMINI_API_KEY not set] Processed '{request.Prompt}' using model '{request.ModelName}'",
-                request.ModelName,
-                TokensUsed: 42,
-                Latency: TimeSpan.FromMilliseconds(50),
-                Success: true
+            if (ShouldAllowMockFallback)
+            {
+                return new ModelResponse(
+                    $"[Gemini Mock Response: GEMINI_API_KEY not set] Processed '{request.Prompt}' using model '{actualModel}'",
+                    actualModel,
+                    TokensUsed: 42,
+                    Latency: TimeSpan.FromMilliseconds(50),
+                    Success: true
+                );
+            }
+
+            return ModelResponse.Failed(
+                $"[AL-AUTH-002] Missing Google Gemini API Key: Model '{actualModel}' requires 'GEMINI_API_KEY'. " +
+                "Please configure your key via environment variable (PowerShell: $env:GEMINI_API_KEY = \"...\"; Bash: export GEMINI_API_KEY=\"...\") " +
+                "or declare it in 'agent.config.json'.",
+                actualModel
             );
         }
 
         var sw = Stopwatch.StartNew();
         try
         {
-            string envModel = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "";
-            string actualModel;
-
-            if (request.ModelName.Equals("Gemini", StringComparison.OrdinalIgnoreCase) ||
-                request.ModelName.Equals("google", StringComparison.OrdinalIgnoreCase) ||
-                request.ModelName.Equals("gemini-pro", StringComparison.OrdinalIgnoreCase) ||
-                request.ModelName.Equals("gemini-flash", StringComparison.OrdinalIgnoreCase))
-            {
-                actualModel = !string.IsNullOrWhiteSpace(envModel) ? envModel : _defaultModel;
-            }
-            else
-            {
-                actualModel = request.ModelName;
-            }
-
             string url = $"https://generativelanguage.googleapis.com/v1beta/models/{actualModel}:generateContent?key={apiKey}";
 
             var payload = new Dictionary<string, object?>
@@ -230,7 +344,104 @@ public sealed class GeminiModelProvider : IModelProvider
         }
         catch (Exception ex)
         {
-            return ModelResponse.Failed(ex.Message, request.ModelName);
+            return ModelResponse.Failed(ex.Message, actualModel);
+        }
+    }
+
+    public async IAsyncEnumerable<string> StreamAsync(
+        ModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        string? apiKey = GetEffectiveApiKey();
+        string envModel = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "";
+        string actualModel;
+
+        if (request.ModelName.Equals("Gemini", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("google", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("gemini-pro", StringComparison.OrdinalIgnoreCase) ||
+            request.ModelName.Equals("gemini-flash", StringComparison.OrdinalIgnoreCase))
+        {
+            actualModel = !string.IsNullOrWhiteSpace(envModel) ? envModel : _defaultModel;
+        }
+        else
+        {
+            actualModel = request.ModelName;
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            if (ShouldAllowMockFallback)
+            {
+                yield return $"[Gemini Mock Response: GEMINI_API_KEY not set] Processed '{request.Prompt}'";
+                yield break;
+            }
+
+            throw new InvalidOperationException($"[AL-AUTH-002] Missing Google Gemini API Key: Model '{actualModel}' requires 'GEMINI_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
+        }
+
+        string url = $"https://generativelanguage.googleapis.com/v1beta/models/{actualModel}:streamGenerateContent?alt=sse&key={apiKey}";
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["contents"] = new[]
+            {
+                new
+                {
+                    parts = new[] { new { text = request.Prompt } }
+                }
+            },
+            ["generationConfig"] = new
+            {
+                temperature = request.Temperature
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+        {
+            payload["system_instruction"] = new
+            {
+                parts = new[] { new { text = request.SystemInstruction } }
+            };
+        }
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            string err = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"Gemini API HTTP {response.StatusCode}: {err}");
+        }
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        while (!ct.IsCancellationRequested)
+        {
+            string? line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+            line = line.Trim();
+            if (line.StartsWith("data: "))
+            {
+                string data = line[6..].Trim();
+                if (string.IsNullOrEmpty(data)) continue;
+
+                using var doc = JsonDocument.Parse(data);
+                if (doc.RootElement.TryGetProperty("candidates", out var candidates) &&
+                    candidates.GetArrayLength() > 0 &&
+                    candidates[0].TryGetProperty("content", out var candContent) &&
+                    candContent.TryGetProperty("parts", out var parts) &&
+                    parts.GetArrayLength() > 0 &&
+                    parts[0].TryGetProperty("text", out var textElem))
+                {
+                    string? token = textElem.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        yield return token;
+                    }
+                }
+            }
         }
     }
 }
@@ -242,11 +453,20 @@ public sealed class AnthropicModelProvider : IModelProvider
     private readonly string? _apiKey;
     private string? _dynamicApiKey;
     private string _defaultModel = "claude-3-7-sonnet-20250219";
+    public bool? AllowMockFallback { get; set; }
 
-    public AnthropicModelProvider(string? apiKey = null, HttpClient? httpClient = null)
+    private bool ShouldAllowMockFallback =>
+        AllowMockFallback ?? (
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_OFFLINE_MOCK"), "1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase) ||
+            AppDomain.CurrentDomain.FriendlyName.Contains("testhost", StringComparison.OrdinalIgnoreCase)
+        );
+
+    public AnthropicModelProvider(string? apiKey = null, HttpClient? httpClient = null, bool? allowMockFallback = null)
     {
         _apiKey = apiKey ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
         _httpClient = httpClient ?? new HttpClient();
+        AllowMockFallback = allowMockFallback;
     }
 
     public void SetApiKey(string key) => _dynamicApiKey = key;
@@ -265,25 +485,35 @@ public sealed class AnthropicModelProvider : IModelProvider
     public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default)
     {
         string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("Claude", StringComparison.OrdinalIgnoreCase) ||
+                             request.ModelName.Equals("anthropic", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
         if (string.IsNullOrWhiteSpace(key))
         {
-            return new ModelResponse(
-                $"[Claude Mock Response: ANTHROPIC_API_KEY not set] Processed '{request.Prompt}' using model '{request.ModelName}'",
-                request.ModelName,
-                TokensUsed: 42,
-                Latency: TimeSpan.FromMilliseconds(50),
-                Success: true
+            if (ShouldAllowMockFallback)
+            {
+                return new ModelResponse(
+                    $"[Claude Mock Response: ANTHROPIC_API_KEY not set] Processed '{request.Prompt}' using model '{actualModel}'",
+                    actualModel,
+                    TokensUsed: 42,
+                    Latency: TimeSpan.FromMilliseconds(50),
+                    Success: true
+                );
+            }
+
+            return ModelResponse.Failed(
+                $"[AL-AUTH-003] Missing Anthropic Claude API Key: Model '{actualModel}' requires 'ANTHROPIC_API_KEY'. " +
+                "Please configure your key via environment variable (PowerShell: $env:ANTHROPIC_API_KEY = \"sk-ant-...\"; Bash: export ANTHROPIC_API_KEY=\"sk-ant-...\") " +
+                "or declare it in 'agent.config.json'.",
+                actualModel
             );
         }
 
         var sw = Stopwatch.StartNew();
         try
         {
-            string actualModel = request.ModelName.Equals("Claude", StringComparison.OrdinalIgnoreCase) ||
-                                 request.ModelName.Equals("anthropic", StringComparison.OrdinalIgnoreCase)
-                ? _defaultModel
-                : request.ModelName;
-
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
             httpRequest.Headers.Add("x-api-key", key);
             httpRequest.Headers.Add("anthropic-version", "2023-06-01");
@@ -330,7 +560,88 @@ public sealed class AnthropicModelProvider : IModelProvider
         }
         catch (Exception ex)
         {
-            return ModelResponse.Failed(ex.Message, request.ModelName);
+            return ModelResponse.Failed(ex.Message, actualModel);
+        }
+    }
+
+    public async IAsyncEnumerable<string> StreamAsync(
+        ModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("Claude", StringComparison.OrdinalIgnoreCase) ||
+                             request.ModelName.Equals("anthropic", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (ShouldAllowMockFallback)
+            {
+                yield return $"[Claude Mock Response: ANTHROPIC_API_KEY not set] Processed '{request.Prompt}'";
+                yield break;
+            }
+
+            throw new InvalidOperationException($"[AL-AUTH-003] Missing Anthropic Claude API Key: Model '{actualModel}' requires 'ANTHROPIC_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
+        }
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
+        httpRequest.Headers.Add("x-api-key", key);
+        httpRequest.Headers.Add("anthropic-version", "2023-06-01");
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = actualModel,
+            ["max_tokens"] = 1024,
+            ["temperature"] = request.Temperature,
+            ["stream"] = true,
+            ["messages"] = new[]
+            {
+                new { role = "user", content = request.Prompt }
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+        {
+            payload["system"] = request.SystemInstruction;
+        }
+
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            string err = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"Anthropic API HTTP {response.StatusCode}: {err}");
+        }
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        while (!ct.IsCancellationRequested)
+        {
+            string? line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+            line = line.Trim();
+
+            if (line.StartsWith("data: "))
+            {
+                string data = line[6..].Trim();
+                if (string.IsNullOrEmpty(data)) continue;
+
+                using var doc = JsonDocument.Parse(data);
+                if (doc.RootElement.TryGetProperty("type", out var typeProp) &&
+                    typeProp.GetString() == "content_block_delta" &&
+                    doc.RootElement.TryGetProperty("delta", out var delta) &&
+                    delta.TryGetProperty("text", out var textProp))
+                {
+                    string? token = textProp.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        yield return token;
+                    }
+                }
+            }
         }
     }
 }
@@ -343,12 +654,21 @@ public sealed class DeepSeekModelProvider : IModelProvider
     private string? _dynamicApiKey;
     private string _defaultModel = "deepseek-chat";
     private readonly string _endpoint;
+    public bool? AllowMockFallback { get; set; }
 
-    public DeepSeekModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null)
+    private bool ShouldAllowMockFallback =>
+        AllowMockFallback ?? (
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_OFFLINE_MOCK"), "1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Environment.GetEnvironmentVariable("AGENTLANG_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase) ||
+            AppDomain.CurrentDomain.FriendlyName.Contains("testhost", StringComparison.OrdinalIgnoreCase)
+        );
+
+    public DeepSeekModelProvider(string? apiKey = null, string? endpoint = null, HttpClient? httpClient = null, bool? allowMockFallback = null)
     {
         _apiKey = apiKey ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
         _endpoint = endpoint ?? Environment.GetEnvironmentVariable("DEEPSEEK_ENDPOINT") ?? "https://api.deepseek.com/chat/completions";
         _httpClient = httpClient ?? new HttpClient();
+        AllowMockFallback = allowMockFallback;
     }
 
     public void SetApiKey(string key) => _dynamicApiKey = key;
@@ -366,14 +686,28 @@ public sealed class DeepSeekModelProvider : IModelProvider
     public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct = default)
     {
         string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
         if (string.IsNullOrWhiteSpace(key))
         {
-            return new ModelResponse(
-                $"[DeepSeek Mock Response: DEEPSEEK_API_KEY not set] Processed '{request.Prompt}' using model '{request.ModelName}'",
-                request.ModelName,
-                TokensUsed: 42,
-                Latency: TimeSpan.FromMilliseconds(50),
-                Success: true
+            if (ShouldAllowMockFallback)
+            {
+                return new ModelResponse(
+                    $"[DeepSeek Mock Response: DEEPSEEK_API_KEY not set] Processed '{request.Prompt}' using model '{actualModel}'",
+                    actualModel,
+                    TokensUsed: 42,
+                    Latency: TimeSpan.FromMilliseconds(50),
+                    Success: true
+                );
+            }
+
+            return ModelResponse.Failed(
+                $"[AL-AUTH-004] Missing DeepSeek API Key: Model '{actualModel}' requires 'DEEPSEEK_API_KEY'. " +
+                "Please configure your key via environment variable (PowerShell: $env:DEEPSEEK_API_KEY = \"sk-...\"; Bash: export DEEPSEEK_API_KEY=\"sk-...\") " +
+                "or declare it in 'agent.config.json'.",
+                actualModel
             );
         }
 
@@ -382,10 +716,6 @@ public sealed class DeepSeekModelProvider : IModelProvider
         {
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-
-            string actualModel = request.ModelName.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
-                ? _defaultModel
-                : request.ModelName;
 
             var messages = new List<object>();
             if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
@@ -432,7 +762,83 @@ public sealed class DeepSeekModelProvider : IModelProvider
         }
         catch (Exception ex)
         {
-            return ModelResponse.Failed(ex.Message, request.ModelName);
+            return ModelResponse.Failed(ex.Message, actualModel);
+        }
+    }
+
+    public async IAsyncEnumerable<string> StreamAsync(
+        ModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        string? key = GetEffectiveApiKey();
+        string actualModel = request.ModelName.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+            ? _defaultModel
+            : request.ModelName;
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (ShouldAllowMockFallback)
+            {
+                yield return $"[DeepSeek Mock Response: DEEPSEEK_API_KEY not set] Processed '{request.Prompt}'";
+                yield break;
+            }
+
+            throw new InvalidOperationException($"[AL-AUTH-004] Missing DeepSeek API Key: Model '{actualModel}' requires 'DEEPSEEK_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
+        }
+
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
+        {
+            messages.Add(new { role = "system", content = request.SystemInstruction });
+        }
+        messages.Add(new { role = "user", content = request.Prompt });
+
+        var payload = new
+        {
+            model = actualModel,
+            messages = messages,
+            temperature = request.Temperature,
+            stream = true
+        };
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            string err = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"DeepSeek API HTTP {response.StatusCode}: {err}");
+        }
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        while (!ct.IsCancellationRequested)
+        {
+            string? line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+            line = line.Trim();
+            if (line.StartsWith("data: "))
+            {
+                string data = line[6..].Trim();
+                if (data == "[DONE]") break;
+                if (string.IsNullOrEmpty(data)) continue;
+
+                using var doc = JsonDocument.Parse(data);
+                if (doc.RootElement.TryGetProperty("choices", out var choices) &&
+                    choices.GetArrayLength() > 0 &&
+                    choices[0].TryGetProperty("delta", out var delta) &&
+                    delta.TryGetProperty("content", out var contentElem))
+                {
+                    string? token = contentElem.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        yield return token;
+                    }
+                }
+            }
         }
     }
 }

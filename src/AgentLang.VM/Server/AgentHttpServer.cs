@@ -345,6 +345,16 @@ public sealed class AgentHttpServer : IDisposable
             toolRegistry: _vm.Runtime.ToolRegistry,
             securityEngine: _vm.Runtime.SecurityEngine);
 
+        runtime.TokenStreamCallback = token =>
+        {
+            try
+            {
+                writer.Write($"data: {JsonSerializer.Serialize(new { type = "token", content = token })}\n\n");
+                writer.Flush();
+            }
+            catch { }
+        };
+
         try
         {
             var sourceText = new SourceText(code);

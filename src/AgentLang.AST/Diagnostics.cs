@@ -75,7 +75,7 @@ public sealed class SourceText
             _ => "Info"
         };
 
-        sb.AppendLine($"{severityColor}: {diagnostic.Message}");
+        sb.AppendLine($"{severityColor} [{diagnostic.Id}]: {diagnostic.Message}");
         sb.AppendLine($"  --> {FilePath}:{diagnostic.Span.Start.Line}:{diagnostic.Span.Start.Column}");
 
         int lineNum = diagnostic.Span.Start.Line;
@@ -105,6 +105,30 @@ public sealed class SourceText
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    public string FormatDiagnosticsJson(IEnumerable<Diagnostic> diagnostics)
+    {
+        var items = diagnostics.Select(d => new
+        {
+            code = d.Id,
+            severity = d.Severity.ToString().ToLowerInvariant(),
+            message = d.Message,
+            file = FilePath,
+            line = d.Span.Start.Line,
+            column = d.Span.Start.Column,
+            length = d.Span.Length,
+            snippet = d.Span.Start.Line > 0 ? GetLineText(d.Span.Start.Line) : string.Empty,
+            suggestion = d.Suggestion
+        });
+
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            file = FilePath,
+            has_errors = diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error),
+            has_warnings = diagnostics.Any(d => d.Severity == DiagnosticSeverity.Warning),
+            diagnostics = items
+        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
     }
 }
 

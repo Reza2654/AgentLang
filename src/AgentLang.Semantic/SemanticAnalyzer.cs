@@ -7,6 +7,7 @@ public sealed class SemanticAnalyzer : AstVisitor
     private readonly DiagnosticBag _diagnostics;
     private Scope _currentScope;
     private readonly Scope _globalScope;
+    private readonly HashSet<string> _analyzedImportFiles = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> BuiltInTools = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -696,6 +697,80 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     public override void Visit(ImportDeclarationNode node)
     {
+        if (node.ModulePath.Equals("tools", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var sym in node.Symbols)
+            {
+                _currentScope.TryDeclare(new Symbol(sym, SymbolKind.Tool, node.Span));
+            }
+            return;
+        }
+
+        if (BuiltInModules.Contains(node.ModulePath))
+        {
+            _currentScope.TryDeclare(new Symbol(node.ModulePath, SymbolKind.Variable, node.Span));
+            foreach (var sym in node.Symbols)
+            {
+                _currentScope.TryDeclare(new Symbol(sym, SymbolKind.Variable, node.Span));
+            }
+            return;
+        }
+
+        // Check if it's a file path
+        string currentFile = node.Span.FilePath ?? "";
+        string baseDir = !string.IsNullOrEmpty(currentFile) && currentFile != "<source>"
+            ? Path.GetDirectoryName(Path.GetFullPath(currentFile)) ?? Directory.GetCurrentDirectory()
+            : Directory.GetCurrentDirectory();
+
+        string resolvedPath = Path.Combine(baseDir, node.ModulePath);
+        if (!File.Exists(resolvedPath))
+        {
+            if (File.Exists(resolvedPath + ".agt"))
+                resolvedPath += ".agt";
+            else if (File.Exists(resolvedPath + ".agent"))
+                resolvedPath += ".agent";
+            else if (File.Exists(Path.Combine(baseDir, "agent_modules", node.ModulePath, "main.agent")))
+                resolvedPath = Path.Combine(baseDir, "agent_modules", node.ModulePath, "main.agent");
+            else if (File.Exists(Path.Combine(baseDir, "agent_modules", node.ModulePath + ".agent")))
+                resolvedPath = Path.Combine(baseDir, "agent_modules", node.ModulePath + ".agent");
+            else if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "agent_modules", node.ModulePath, "main.agent")))
+                resolvedPath = Path.Combine(Directory.GetCurrentDirectory(), "agent_modules", node.ModulePath, "main.agent");
+        }
+
+        if (File.Exists(resolvedPath))
+        {
+            string fullPath = Path.GetFullPath(resolvedPath);
+            if (!_analyzedImportFiles.Contains(fullPath))
+            {
+                _analyzedImportFiles.Add(fullPath);
+                try
+                {
+                    string content = File.ReadAllText(fullPath);
+                    var agentMatches = System.Text.RegularExpressions.Regex.Matches(content, @"\b(?:agent|team|swarm)\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+                    foreach (System.Text.RegularExpressions.Match m in agentMatches)
+                    {
+                        _currentScope.TryDeclare(new Symbol(m.Groups[1].Value, SymbolKind.Agent, SourceSpan.None));
+                    }
+                    var fnMatches = System.Text.RegularExpressions.Regex.Matches(content, @"\b(?:function|fn|tool)\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+                    foreach (System.Text.RegularExpressions.Match m in fnMatches)
+                    {
+                        _currentScope.TryDeclare(new Symbol(m.Groups[1].Value, SymbolKind.Function, SourceSpan.None));
+                    }
+                }
+                catch { }
+            }
+        }
+        else if (!node.ModulePath.StartsWith("@") && !BuiltInModules.Contains(node.ModulePath))
+        {
+            // Report warning if local file not found
+            _diagnostics.ReportWarning(
+                "AL-IMPORT-201",
+                $"Module or file '{node.ModulePath}' could not be resolved from '{baseDir}'.",
+                node.Span,
+                $"Ensure file exists at '{resolvedPath}' or configure it in dependencies."
+            );
+        }
+
         foreach (var sym in node.Symbols)
         {
             _currentScope.TryDeclare(new Symbol(sym, SymbolKind.Variable, node.Span));

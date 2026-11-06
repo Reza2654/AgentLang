@@ -181,6 +181,11 @@ public static class ProjectManager
 
         // Also update lockfile
         var lockfile = PackageLock.FromManifest(manifest);
+        SaveLock(directory, lockfile);
+    }
+
+    public static void SaveLock(string directory, PackageLock lockfile)
+    {
         string lockJson = JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(Path.Combine(directory, LockFileName), lockJson);
     }
