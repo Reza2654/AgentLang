@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.9.0";
+    public const string Version = "0.9.1";
 
     public static async Task<int> Main(string[] args)
     {

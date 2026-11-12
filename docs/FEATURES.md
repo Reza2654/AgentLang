@@ -1,4 +1,4 @@
-# AgentLang Language & Runtime Reference (`v0.9.0`)
+# AgentLang Language & Runtime Reference (`v0.9.1`)
 
 > This document contains the full reference for AgentLang's language primitives, VM subsystems, CLI tools, and experimental modules. For the quickstart, benchmarks, and stability matrix, see the [main README](../README.md).
 

@@ -153,7 +153,7 @@ public sealed class AgentLspServer
             serverInfo = new
             {
                 name = "agentlang-lsp",
-                version = "0.9.0"
+                version = "0.9.1"
             }
         };
 

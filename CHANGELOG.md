@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] — 2026-11-12
+
+### Added & Improved
+- **Trim-Safe JSON Diagnostics (`Utf8JsonWriter`)**: Refactored `SourceText.FormatDiagnosticsJson` and `CheckCommand` to use zero-reflection `Utf8JsonWriter`, enabling `agent check --json` to run reliably in trimmed self-contained single-file binaries (`12.36 MB`).
+- **Reproducible Benchmarks (`benchmarks/benchmark.ps1`)**: Added an automated benchmark suite measuring exact self-contained trimmed & ReadyToRun binary sizes, startup latency, 24-file static check timing, and `.agtc` bytecode compilation output.
+- **GitHub Actions CI & Binary Release Pipeline (`.github/workflows/ci.yml`)**: Automated unit/integration testing across Ubuntu and Windows plus cross-platform standalone binary builds (`win-x64`, `linux-x64`, `osx-arm64`) attached to tagged releases.
+- **Focused Documentation**: Streamlined `README.md` around the 4 verified architectural pillars, fixed quickstart paths (`examples/hello-agent/main.agent`), added subsystem maturity transparency, and moved the full reference guide to `docs/FEATURES.md`.
+- **Doctor Output Alignment**: Updated `DoctorCommand` provider diagnostics to accurately reflect fail-fast unconfigured API key behavior.
+
+---
+
 ## [0.9.0] — 2026-11-06
 
 ### Added
