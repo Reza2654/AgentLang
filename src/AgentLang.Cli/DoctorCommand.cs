@@ -88,7 +88,7 @@ public static class DoctorCommand
             PrintStatus(true, "OpenAI API Provider", "OPENAI_API_KEY is configured");
         else
         {
-            PrintInfo("OpenAI API Provider", "OPENAI_API_KEY not set (optional - mock provider active)");
+            PrintInfo("OpenAI API Provider", "OPENAI_API_KEY not set (fail-fast; set key or use model: \"mock\")");
             warnings++;
         }
 
@@ -97,7 +97,7 @@ public static class DoctorCommand
             PrintStatus(true, "Google Gemini Provider", "GEMINI_API_KEY is configured");
         else
         {
-            PrintInfo("Google Gemini Provider", "GEMINI_API_KEY not set (optional - mock provider active)");
+            PrintInfo("Google Gemini Provider", "GEMINI_API_KEY not set (fail-fast; set key or use model: \"mock\")");
             warnings++;
         }
 
@@ -106,7 +106,7 @@ public static class DoctorCommand
             PrintStatus(true, "Anthropic Claude Provider", "ANTHROPIC_API_KEY is configured");
         else
         {
-            PrintInfo("Anthropic Claude Provider", "ANTHROPIC_API_KEY not set (optional - mock provider active)");
+            PrintInfo("Anthropic Claude Provider", "ANTHROPIC_API_KEY not set (fail-fast; set key or use model: \"mock\")");
             warnings++;
         }
 

@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using AgentLang.AST;
 using AgentLang.Parser;
 using AgentLang.Semantic;
@@ -35,12 +37,7 @@ public static class CheckCommand
         {
             if (jsonFormat)
             {
-                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    success = false,
-                    error = $"Target '{target}' does not exist.",
-                    files = Array.Empty<object>()
-                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                WriteSimpleJsonError($"Target '{target}' does not exist.");
             }
             else
             {
@@ -55,12 +52,17 @@ public static class CheckCommand
         {
             if (jsonFormat)
             {
-                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                using var emptyMs = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(emptyMs, new JsonWriterOptions { Indented = true }))
                 {
-                    success = true,
-                    message = $"No .agt or .agent files found in '{target}'.",
-                    files = Array.Empty<object>()
-                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                    writer.WriteStartObject();
+                    writer.WriteBoolean("success", true);
+                    writer.WriteString("message", $"No .agt or .agent files found in '{target}'.");
+                    writer.WriteStartArray("files");
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                }
+                Console.WriteLine(Encoding.UTF8.GetString(emptyMs.ToArray()));
             }
             else
             {
@@ -78,7 +80,7 @@ public static class CheckCommand
 
         int totalErrors = 0;
         int totalWarnings = 0;
-        var jsonFileReports = new List<object>();
+        var jsonFileReports = new List<(string File, int Errors, int Warnings, SourceText Source, List<Diagnostic> Diagnostics)>();
 
         foreach (var file in files)
         {
@@ -101,23 +103,7 @@ public static class CheckCommand
 
             if (jsonFormat)
             {
-                jsonFileReports.Add(new
-                {
-                    file = relPath,
-                    errors,
-                    warnings,
-                    diagnostics = allDiagnostics.Select(d => new
-                    {
-                        code = d.Id,
-                        severity = d.Severity.ToString().ToLowerInvariant(),
-                        message = d.Message,
-                        line = d.Span.Start.Line,
-                        column = d.Span.Start.Column,
-                        length = d.Span.Length,
-                        snippet = d.Span.Start.Line > 0 ? source.GetLineText(d.Span.Start.Line) : string.Empty,
-                        suggestion = d.Suggestion
-                    })
-                });
+                jsonFileReports.Add((relPath, errors, warnings, source, allDiagnostics));
             }
             else
             {
@@ -148,14 +134,45 @@ public static class CheckCommand
 
         if (jsonFormat)
         {
-            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            using var ms = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
             {
-                success = totalErrors == 0,
-                total_files = files.Count,
-                total_errors = totalErrors,
-                total_warnings = totalWarnings,
-                files = jsonFileReports
-            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                writer.WriteStartObject();
+                writer.WriteBoolean("success", totalErrors == 0);
+                writer.WriteNumber("total_files", files.Count);
+                writer.WriteNumber("total_errors", totalErrors);
+                writer.WriteNumber("total_warnings", totalWarnings);
+                writer.WriteStartArray("files");
+                foreach (var rep in jsonFileReports)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("file", rep.File);
+                    writer.WriteNumber("errors", rep.Errors);
+                    writer.WriteNumber("warnings", rep.Warnings);
+                    writer.WriteStartArray("diagnostics");
+                    foreach (var d in rep.Diagnostics)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteString("code", d.Id);
+                        writer.WriteString("severity", d.Severity.ToString().ToLowerInvariant());
+                        writer.WriteString("message", d.Message);
+                        writer.WriteNumber("line", d.Span.Start.Line);
+                        writer.WriteNumber("column", d.Span.Start.Column);
+                        writer.WriteNumber("length", d.Span.Length);
+                        writer.WriteString("snippet", d.Span.Start.Line > 0 ? rep.Source.GetLineText(d.Span.Start.Line) : string.Empty);
+                        if (d.Suggestion is not null)
+                            writer.WriteString("suggestion", d.Suggestion);
+                        else
+                            writer.WriteNull("suggestion");
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            Console.WriteLine(Encoding.UTF8.GetString(ms.ToArray()));
             return totalErrors == 0 ? 0 : 1;
         }
 
@@ -174,5 +191,20 @@ public static class CheckCommand
             Console.ResetColor();
             return 1;
         }
+    }
+
+    private static void WriteSimpleJsonError(string error)
+    {
+        using var ms = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("success", false);
+            writer.WriteString("error", error);
+            writer.WriteStartArray("files");
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        Console.WriteLine(Encoding.UTF8.GetString(ms.ToArray()));
     }
 }

@@ -109,26 +109,36 @@ public sealed class SourceText
 
     public string FormatDiagnosticsJson(IEnumerable<Diagnostic> diagnostics)
     {
-        var items = diagnostics.Select(d => new
+        var list = diagnostics.ToList();
+        using var ms = new System.IO.MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(ms, new System.Text.Json.JsonWriterOptions { Indented = true }))
         {
-            code = d.Id,
-            severity = d.Severity.ToString().ToLowerInvariant(),
-            message = d.Message,
-            file = FilePath,
-            line = d.Span.Start.Line,
-            column = d.Span.Start.Column,
-            length = d.Span.Length,
-            snippet = d.Span.Start.Line > 0 ? GetLineText(d.Span.Start.Line) : string.Empty,
-            suggestion = d.Suggestion
-        });
-
-        return System.Text.Json.JsonSerializer.Serialize(new
-        {
-            file = FilePath,
-            has_errors = diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error),
-            has_warnings = diagnostics.Any(d => d.Severity == DiagnosticSeverity.Warning),
-            diagnostics = items
-        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            writer.WriteStartObject();
+            writer.WriteString("file", FilePath);
+            writer.WriteBoolean("has_errors", list.Any(d => d.Severity == DiagnosticSeverity.Error));
+            writer.WriteBoolean("has_warnings", list.Any(d => d.Severity == DiagnosticSeverity.Warning));
+            writer.WriteStartArray("diagnostics");
+            foreach (var d in list)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("code", d.Id);
+                writer.WriteString("severity", d.Severity.ToString().ToLowerInvariant());
+                writer.WriteString("message", d.Message);
+                writer.WriteString("file", FilePath);
+                writer.WriteNumber("line", d.Span.Start.Line);
+                writer.WriteNumber("column", d.Span.Start.Column);
+                writer.WriteNumber("length", d.Span.Length);
+                writer.WriteString("snippet", d.Span.Start.Line > 0 ? GetLineText(d.Span.Start.Line) : string.Empty);
+                if (d.Suggestion is not null)
+                    writer.WriteString("suggestion", d.Suggestion);
+                else
+                    writer.WriteNull("suggestion");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
     }
 }
 

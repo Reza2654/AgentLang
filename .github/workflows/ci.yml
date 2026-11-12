@@ -1,0 +1,94 @@
+name: CI & Release Binaries
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore AgentLang.sln
+
+      - name: Build solution
+        run: dotnet build AgentLang.sln --no-restore -c Release
+
+      - name: Run unit & integration tests (241 tests)
+        run: dotnet test AgentLang.sln --no-build -c Release --verbosity normal
+
+  publish-binaries:
+    name: Publish Standalone CLI (${{ matrix.rid }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            ext: ''
+          - os: windows-latest
+            rid: win-x64
+            ext: '.exe'
+          - os: macos-latest
+            rid: osx-arm64
+            ext: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Trimmed Single-File Binary
+        run: |
+          dotnet publish src/AgentLang.Cli/AgentLang.Cli.csproj -c Release -r ${{ matrix.rid }} \
+            --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true \
+            -p:EnableCompressionInSingleFile=true -o ./publish/${{ matrix.rid }}
+
+      - name: Smoke Test Published Binary
+        shell: bash
+        run: |
+          ./publish/${{ matrix.rid }}/AgentLang.Cli${{ matrix.ext }} --version
+          ./publish/${{ matrix.rid }}/AgentLang.Cli${{ matrix.ext }} check examples/ --json > /dev/null
+
+      - name: Package Binary Archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            powershell -Command "Compress-Archive -Path ./publish/${{ matrix.rid }}/* -DestinationPath ./dist/agentlang-${{ matrix.rid }}.zip"
+          else
+            tar -czf ./dist/agentlang-${{ matrix.rid }}.tar.gz -C ./publish/${{ matrix.rid }} .
+          fi
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentlang-${{ matrix.rid }}
+          path: ./dist/*
+
+      - name: Attach Binaries to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

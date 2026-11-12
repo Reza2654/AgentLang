@@ -1,724 +1,156 @@
 # AgentLang — v0.9.0
 
-> **The Agent-Native Compiled Programming Language for Autonomous Multi-Agent Systems**  
-> *Deterministic, Type-Safe, Native AOT, and Zero-Dependency. Built with modern C# 14 on .NET 10.*
+> **A Statically-Checked DSL, Compiler, and Stack-Based Bytecode VM for Autonomous AI Agents**  
+> *Built from scratch in C# 14 on .NET 10 with zero external runtime dependencies (Standard BCL only).*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
 [![Release](https://img.shields.io/badge/Release-v0.9.0-success)](https://github.com/Reza2654/AgentLang/releases)
 [![Tests](https://img.shields.io/badge/Tests-241%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/Reza2654/AgentLang?style=social)](https://github.com/Reza2654/AgentLang/stargazers)
+
+> **Note on Naming:** This repository (`Reza2654/AgentLang`) is an independent, MIT-licensed compiler and bytecode VM implemented in C#/.NET. It is unrelated to Fractl's TypeScript/Node.js web application generator (`agentlang-ai/agentlang`).
 
 ---
 
-## ⚡ Why AgentLang? (AgentLang vs Python Frameworks)
+## ⚡ Why AgentLang?
 
-Writing production multi-agent systems in Python (LangChain, CrewAI, AutoGen) often means wrestling with hundreds of megabytes of nested dependencies, brittle string prompts, silent runtime crashes, and unpredictable tool calling.
+Building multi-agent pipelines in Python (LangChain, CrewAI, AutoGen) typically entails large dependency trees, runtime type mismatches, and opaque tracebacks deep inside dynamic glue code.
 
-**AgentLang replaces fragile glue code with a purpose-built, statically-checked programming language.**
+AgentLang treats agent orchestration as a **compiled systems language**:
 
-| Feature | 🚀 AgentLang | 🐍 LangChain / CrewAI | 🤖 AutoGen |
-| :--- | :---: | :---: | :---: |
-| **Paradigm** | **Native Compiled DSL (`.agt`)** | Python Library / Wrapper | Python Library |
-| **Type Safety & Compiler Verification** | ✅ **Static Analysis prior to execution** | ❌ Runtime exceptions | ❌ Runtime exceptions |
-| **Startup Latency & Speed** | ⚡ **<15ms (Native AOT)** | 🐢 1.5s - 4.0s (Python import crawl) | 🐢 1.5s - 3.5s |
-| **Deployment Footprint** | 📦 **Single ~12MB standalone binary** | 🐘 500MB+ virtualenv & heavy wheels | 🐘 400MB+ virtualenv |
-| **External Runtime Dependencies** | 0️⃣ **Zero (Standard .NET BCL only)** | 100+ transitive packages | 30+ transitive packages |
-| **Multi-Agent Primitives** | 🧬 **Native (`swarm`, `pipeline`, `team`)** | Class graphs & callbacks | ConversableAgent hooks |
-| **Real-time Live Streaming** | 🌊 **Native token-by-token SSE & CLI** | Custom callbacks & async iterators | Basic event listeners |
-| **Diagnostics & Error Handling** | 🎯 **AI-Readable JSON & Unique Error IDs** | ❌ Massive opaque Python tracebacks | ❌ Generic stack traces |
-| **Developer Experience (IDE)** | 🛠️ **Full LSP 3.17 & VS Code Extension** | Generic Python linters | Generic Python linters |
-| **Self-Healing & Auto-Remediation** | 🛡️ **Built-in fallback chains & repair** | Manual try/catch loops | Manual retry handling |
-| **Offline / Local Execution** | 🔒 **Native Ollama integration** | Requires community plugins | Requires configuration |
+| Dimension | 🚀 AgentLang (`Reza2654/AgentLang`) | 🐍 Python Frameworks (LangChain / CrewAI) |
+| :--- | :--- | :--- |
+| **Execution Model** | Custom Lexer → Parser → AST → Semantic Analyzer → Bytecode VM (`.agtc`) | Python runtime libraries & dynamic wrappers |
+| **Static Verification** | Catches syntax, type, and tool errors **before** any LLM API call (`agent check --json`) | Fails at runtime after partial API spend |
+| **External Dependencies** | **0** runtime NuGet dependencies (100% .NET Standard BCL) | 30–100+ transitive pip packages |
+| **Distribution Size** | **12.36 MB** self-contained single-file executable (verified, zero .NET install needed) | 400 MB+ Python virtual environments |
+| **Diagnostics for Humans & AI** | Structured `--json` compiler errors with error codes (`[AL-AUTH-001]`), spans & fix suggestions | Multi-page dynamic stack traces |
+| **Live Token Streaming** | Built-in token-by-token streaming in CLI (`agent chat`) and HTTP SSE gateway | Custom callback/iterator wiring |
+| **IDE Tooling** | Native **LSP 3.17** server (`agent lsp`) + VS Code extension (`editors/vscode`) | Generic Python linters |
+| **Local / Air-Gapped LLMs** | Native **Ollama** streaming provider + zero-trust tool sandboxing | Community extensions / config |
 
 ---
 
-## 🎬 Quick Look in 10 Seconds
+## 🏛️ 4 Core Architectural Pillars
 
-```text
-$ agent run examples/researcher.agt --stream
+Instead of wrapping existing agent libraries, AgentLang is built around four verified core subsystems:
 
-[AgentLang v0.9.0] Compiling examples/researcher.agt...
-✓ Syntax & Semantic Analysis passed (0 warnings)
-✓ Initializing Agent 'ResearchAssistant' with Gemini 2.5 Pro...
+### 1. Agent-Native DSL (`.agt` / `.agent`) & Semantic Verification
+Write typed `agent`, `pipeline`, `workflow`, `state`, `schema`, and `tool` declarations that are statically checked prior to execution:
 
-[Thought] Need empirical benchmarks for decentralized multi-agent architectures.
-[Tool Call] web_search(query: "autonomous agent consensus benchmarks 2026")
-[Tool Result] 4 citations retrieved.
-[Streaming] Recent studies indicate compiled agent DSLs reduce orchestrator 
-token overhead by up to 64% while eliminating runtime type drift...
+```agentlang
+agent ResearchAssistant {
+    model: "gemini-2.5-pro"
+    role: "Empirical technical analyst"
+    tools: [web_search]
+}
 
-✨ Goal achieved in 1.14s | 340 tokens | Cost: $0.0006
+goal task = "Summarize consensus models in decentralized agent systems."
+response = ResearchAssistant.achieve(task)
+print(response.output)
 ```
+
+Run machine-readable compiler checks for CI pipelines or AI coding assistants:
+```bash
+agent check examples/ --json
+```
+
+### 2. Stack-Based Bytecode VM (`.agtc`) & Sandboxing
+Compile `.agt` / `.agent` scripts down to compact `.agtc` bytecode binaries (e.g., `160 bytes` for `examples/hello-agent/main.agent`) and execute inside a sandboxed VM supporting instruction cycle limits (`VM101`), capability gating (`VM102`), and execution snapshots:
+
+```bash
+agent compile examples/hello-agent/main.agent -o hello.agtc
+agent run hello.agtc
+```
+
+### 3. Multi-Provider Connectivity, Live Token Streaming & MCP
+* **Zero-Mock Fail-Fast Auth:** Missing API credentials fail immediately with actionable codes (`[AL-AUTH-001]`–`[AL-AUTH-004]`) instead of returning silent placeholder strings. Deterministic offline mocks are scoped explicitly to `model: "mock"` or test hosts.
+* **Live Token Streaming:** Word-by-word streaming over OpenAI, Gemini, Claude, DeepSeek, and local **Ollama**, exposed in both interactive CLI (`agent chat`) and HTTP Server-Sent Events (`POST /api/v1/stream`).
+* **Model Context Protocol (MCP):** JSON-RPC 2.0 `McpClient` and stdio `McpServer` (`agent serve --mcp`).
+
+### 4. Language Server Protocol (LSP 3.17) & Project Workflow
+* Full **LSP 3.17** implementation (`agent lsp`): real-time diagnostics, completions, hover documentation, go-to-definition, document outline, formatting, rename, and references (`editors/vscode`).
+* Modular file imports (`import "./helpers.agt";`) and project management (`agent init`, `agent install`, `agent.config.json`, `agent.lock`).
+
+> 📖 For the complete language syntax, CLI flags, HTTP gateway API, and full module guide, see **[docs/FEATURES.md](docs/FEATURES.md)**.
 
 ---
 
 ## ⚡ 60-Second Quickstart
 
-### 1. Build & Run from Source
+### Build & Run from Source (`.NET 10 SDK`)
 ```bash
-# Clone repository
 git clone https://github.com/Reza2654/AgentLang.git
 cd AgentLang
-
-# Build the project (requires .NET 10 SDK)
-dotnet build
-
-# Run any of the 24 pre-built examples
-dotnet run --project src/AgentLang.Cli -- run examples/01_simple_agent.agt
+dotnet build AgentLang.sln
 ```
 
-### 2. Hello World in AgentLang (`app.agt`)
-```agentlang
-agent Analyst {
-    model: "gemini-2.5-pro"
-    role: "Senior Systems Architect"
-    tools: [web_search]
-}
-
-goal task = "Compare Actor-model concurrency with Communicating Sequential Processes."
-response = Analyst.achieve(task)
-print(response.output)
-```
-
-### 3. Interactive Streaming Chat
+Run static verification across all 24 included examples:
 ```bash
-agent chat examples/01_simple_agent.agt
+dotnet run --project src/AgentLang.Cli -- check examples/
 ```
 
-### 4. Machine-Readable Diagnostics for AI Tools & IDEs
+Compile an example to `.agtc` bytecode:
 ```bash
-agent check examples/ --json
+dotnet run --project src/AgentLang.Cli -- compile examples/hello-agent/main.agent -o hello.agtc
 ```
 
----
-
-## 🌟 What is AgentLang?
-
-**AgentLang** is an agentic programming language designed from the ground up to make **Autonomous AI Agents**, **Multi-Agent Swarms**, **Bytecode IR (.agtc)**, **Hybrid Semantic Search**, **Auto-Remediation**, **Model Context Protocol (MCP)**, **Resumable Checkpoints**, and **Enterprise Guardrails** first-class language primitives.
-
-Instead of writing hundreds of lines of fragile glue code in Python or TypeScript with string-interpolated prompts and unverified tool calls, AgentLang provides a **deterministic, compiler-checked, sandboxed DSL** with native file extension **`.agt`**.
-
-```text
-               AgentLang Script (.agt)
-                         ↓
-  Lexer ➔ Parser ➔ AST ➔ Semantic Analyzer
-                         ↓
-            ┌─────────────────────────┐
-            │     AgentLang Runtime   │
-            ├─────────────────────────┤
-            │  • ReAct Engine         │
-            │  • Memory & VectorStore │
-            │  • Guardrails & Budget  │
-            │  • Modular Imports      │
-            │  • Swarm & Consensus    │
-            │  • OpenAPI Tool Gen     │
-            └────────────┬────────────┘
-                         ↓
-            ┌─────────────────────────┐
-            │      AgentLang VM       │
-            ├─────────────────────────┤
-            │  • Bytecode Engine (.agtc)
-            │  • Sandboxed Execution  │
-            │  • Actor Model & Mailbox│
-            │  • Context Compactor    │
-            │  • Tool Rate Limiter    │
-            │  • MCP Client & Server  │
-            │  • State Checkpointing  │
-            │  • Hybrid BM25 Search   │
-            │  • Semantic Prompt Cache│
-            │  • Self-Healing Loops   │
-            │  • OpenTelemetry Tracing│
-            │  • Eval & Benchmarks    │
-            └─────────────────────────┘
-```
-
----
-
-## 🚀 Key Features
-
-### 1. Agent Scripting DSL (`.agt`) & Top-Level Scripting
-Define agents declaratively with model configurations, personas, strategies, tools, and memory stores. Top-level scripting allows running statements immediately without requiring boilerplates:
-
-```agentlang
-agent ResearchAssistant {
-    model: "claude-3-7-sonnet"
-    persona: "Rigorous research analyst focusing on empirical evidence"
-    tools: [web_search, summarize_document]
-    memory: ConversationBuffer(window: 5)
-    strategy: ReAct(max_steps: 4)
-}
-
-goal task1 = "Summarize latest developments in Autonomous Agent VMs."
-response = ResearchAssistant.achieve(task1)
-print(response.output)
-```
-
----
-
-### 2. Multi-Agent Collaborative Pipelines (`pipeline`) & Evaluation Loops
-Create multi-agent collaborative workflows with built-in convergence loops:
-
-```agentlang
-agent Writer {
-    model: "gpt-6-astra"
-    role: "Drafts comprehensive technical reports"
-}
-
-agent Critic {
-    model: "claude-fable-5.1"
-    role: "Reviews technical accuracy and formatting"
-}
-
-pipeline ContentPipeline {
-    input topic: string
-    
-    draft = Writer.draft(topic)
-    
-    loop until Critic.approves(draft) max_retries 3 {
-        feedback = Critic.review(draft)
-        draft = Writer.revise(draft, with: feedback)
-    }
-    
-    return draft
-}
-
-result = ContentPipeline.run("Decentralized AI Agents")
-print(result.output)
-```
-
----
-
-### 3. Shared State Management (`state`) & Team Workflows (`workflow`)
-Orchestrate structured state transitions between multiple coordinating agents:
-
-```agentlang
-state FeatureState {
-    spec: string = ""
-    code: string = ""
-    status: string = "PLANNING"
-}
-
-workflow BuildFeature(user_story: string) -> FeatureState {
-    init state = FeatureState()
-
-    state.spec = TechLead.execute("Design spec for: " + user_story)
-    state.status = "CODING"
-
-    loop attempts from 1 to 3 {
-        state.code = Developer.execute(spec: state.spec)
-        test_run = QAEngineer.run_tests(code: state.code)
-        
-        if (test_run.passed) {
-            state.status = "DONE"
-            break
-        }
-    }
-
-    return state
-}
-```
-
----
-
-### 4. Reactive Events & Semantic Decision-Making (`on event`, `decide`)
-React asynchronously to events and logs using semantic reasoning and safety actions:
-
-```agentlang
-agent Sentinel {
-    tools: [send_slack_alert, block_ip]
-
-    on event(ServerLog log) {
-        decide (log.content contains_suspicious_activity) {
-            reasoning: "Analyze breach patterns and brute-force indicators"
-            action {
-                block_ip(log.ip)
-                send_slack_alert(channel: "#security", message: "IP Blocked: " + log.ip)
-            }
-        }
-    }
-}
-```
-
----
-
-### 5. Enterprise Guardrails, Budgeting & Human-in-the-Loop
-Enforce strict output schemas, forbidden patterns, and token/cost budgets at runtime:
-
-```agentlang
-agent FinancialAnalyst {
-    model: "gpt-4o"
-    
-    guardrails {
-        forbid: ["guaranteed profit", "financial advice"]
-        require_format: Schema(summary: string, risks: list[string])
-    }
-}
-
-budget max_tokens: 3000 max_cost: 0.05 {
-    try {
-        report = FinancialAnalyst.achieve("Quarterly fiscal audit")
-    } catch (BudgetExceededError err) {
-        print("Budget limit reached: " + err.message)
-    } catch (GuardrailViolationError err) {
-        transfer_to_human(reason: "Policy violation flagged")
-    }
-}
-```
-
----
-
-### 6. Agent Virtual Machine (`AgentLang.VM`)
-The dedicated Agent Virtual Machine provides complete sandboxing and execution safety:
-- **Instruction Cycle Limit**: Prevents infinite loops or runaway compute (`VmCycleLimitExceededException` / `VM101`).
-- **Capability Gating**: Enforces zero-trust permissions on sensitive tools (`VmSandboxViolationException` / `VM102`).
-- **State Checkpointing**: Create and restore snapshots of agent memory and global variables via `vm.CreateSnapshot()` and `vm.RestoreSnapshot()`.
-
-```csharp
-var options = new VmOptions
-{
-    MaxInstructions = 10_000,
-    EnableSandboxing = true,
-    AllowedCapabilities = ["memory.*"]
-};
-
-var vm = new AgentVirtualMachine(options);
-await vm.ExecuteAsync(scriptCode);
-
-var snapshot = vm.CreateSnapshot("checkpoint_alpha");
-string json = snapshot.ToJson();
-vm.RestoreSnapshot(snapshot);
-```
-
----
-
-### 7. Actor Model Concurrency (`AgentActorSystem`)
-Isolated actor execution inspired by Erlang/BEAM:
-- **Mailbox**: Non-blocking asynchronous message passing (`AskAsync`, `TellAsync`, `SendAsync`, `BroadcastAsync`).
-- **Supervision Strategies**: Automatic fault recovery with `Restart`, `Resume`, or `Stop` policies.
-
-```csharp
-var actorSystem = new AgentActorSystem();
-var worker = actorSystem.Spawn("calculator", async (self, msg) => {
-    return (int)msg.Payload * 2;
-}, strategy: SupervisionStrategy.Restart);
-
-var result = await worker.AskAsync(21); // 42
-```
-
----
-
-### 8. Context Window Compaction & Rate Limiting
-- **`ContextCompactor`**: Semantic summarization of older conversation turns into cohesive system memos while preserving recent context.
-- **`TokenCache`**: Deterministic prompt completion and tool response caching with TTL and hit-rate tracking.
-- **`ToolScheduler`**: Sliding-window rate limiter and concurrency semaphore preventing API provider rate-limits (HTTP 429).
-
----
-
-### 9. Modular Imports & Standard Library (`@stdlib/*`)
-Organize code into reusable packages:
-```agentlang
-import "./math_utils.agt";
-import { sha256, uuid } from "@stdlib/crypto";
-import { split, join, trim } from "@stdlib/text";
-import { chunk_text, similarity } from "@stdlib/rag";
-
-hash = sha256("AgentLang")
-chunks = chunk_text("Autonomous AI agent system", 20, 5)
-```
-- Built-in circular import detection (`MOD002`).
-- In-memory module caching.
-
----
-
-### 10. Code Transpilation
-Transpile AgentLang scripts into popular production AI ecosystems:
+Run an interactive live-streaming chat (set `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or use local `ollama`):
 ```bash
-agent build app.agt --target python   # Emits clean LangGraph / CrewAI Python code
-agent build app.agt --target ts       # Emits TypeScript code for Vercel AI SDK
+dotnet run --project src/AgentLang.Cli -- chat examples/hello-agent/main.agent
 ```
 
----
-
-### 11. Packaging & Docker Deployment
-- **Manifest & Lockfile**: `agent.json` and `agent.lock` with SHA-256 integrity hashes.
-- **Bundling**: `agent pack` packages your project into a `.agtpkg` distribution archive.
-- **Docker Export**: `agent docker` generates optimized multi-stage production Dockerfile and `.dockerignore`.
-
----
-
-### 12. Model Context Protocol (MCP) Client & Server
-AgentLang provides native, standard-compliant Model Context Protocol (JSON-RPC 2.0) support:
-- **`McpClient`**: Connect to external tool servers, discover tools dynamically (`tools/list`), and automatically bridge them into the agent tool registry (`mcp__<tool>`).
-- **`McpServer`**: Run AgentLang as an MCP server over stdio, exposing your agents and workflows to Claude Desktop, Antigravity, or Cursor:
+Check environment health and configured providers:
 ```bash
-agent serve --mcp
+dotnet run --project src/AgentLang.Cli -- doctor
 ```
 
 ---
 
-### 13. Resumable State Checkpointing & Time-Travel Debugging
-Long-running and human-in-the-loop workflows can be checkpointed and resumed across crashes or machine reboots:
-- **`ExecutionCheckpoint`**: Snapshots variables, step indexes, agent conversation memories, and statuses.
-- **Storage**: `FileCheckpointStore` persists `.agtchk` JSON checkpoints under `.agent/checkpoints/`.
-```bash
-agent checkpoint list
-agent checkpoint show <id>
+## 📊 Reproducible Benchmarks
+
+All metrics below were measured locally using [`benchmarks/benchmark.ps1`](benchmarks/benchmark.ps1) on `win-x64` (`.NET 10.0.12`, `v0.9.0`, averaged across 5 runs after warm-up):
+
+| Publish Configuration | Binary Size | `--version` (avg) | `check examples/ --json` (24 files) | `hello.agtc` Size |
+| :--- | :---: | :---: | :---: | :---: |
+| Self-Contained + Trimmed + Compressed (`PublishSingleFile`) | **12.36 MB** | `135.2 ms` | `281.9 ms` | `160 bytes` |
+| Self-Contained + ReadyToRun (Uncompressed `PublishSingleFile`) | **83.31 MB** | `61.8 ms` | `107.3 ms` | `160 bytes` |
+
+Reproduce these measurements directly on your machine:
+```powershell
+powershell -ExecutionPolicy Bypass -File benchmarks/benchmark.ps1
 ```
 
----
-
-### 14. Swarm Protocols, Consensus Voting & Multi-Agent Debate
-- **Dynamic Handoffs**: Transfer tasks between specialized agents with `ReturnOnComplete` synthesis.
-- **Consensus Engine**: Multi-agent voting tally using `Majority`, `Weighted`, or `Unanimous` consensus.
-- **Debate Protocol**: Multi-turn debates between opposing agents (e.g. Architect vs Pragmatist) with judge evaluation.
+> **Note on Full Native AOT (`-p:PublishAot=true`):** Core compiler/CLI JSON diagnostics (`CheckCommand`, `Diagnostics`) use zero-reflection `Utf8JsonWriter`, while optional runtime/VM serialization components (REST providers, MCP server, HTTP gateway) still use `System.Text.Json` reflection serialization (emitting trim/AOT warnings `IL2026`/`IL3050` during publish). Full zero-warning Native AOT across all VM modules is tracked on the roadmap toward `v1.0.0`.
 
 ---
 
-### 15. Distributed OpenTelemetry Tracing & Observability
-W3C `traceparent` context propagation across agents, actor mailboxes, and tool calls. Visualize execution trees directly in the terminal:
-```bash
-agent run app.agt --trace
-```
-```text
-[Trace: 88d6ba92f7123fb992a7bc07466f2661] Total: 67.7ms | Tokens: 484 | Cost: $0.0073
-└── vm.program.execute [67.7ms]
-    ├── agent.solve:ResearchAssistant [0.9ms] (120 tokens)
-    ├── agent.solve:Writer [0.0ms] (120 tokens)
-    ├── agent.solve:TechLead [0.0ms] (120 tokens)
-    └── agent.solve:Developer [0.0ms] (124 tokens)
-```
-JSON traces are automatically exported to `.agent/traces/{traceId}.json`.
+## 🔍 Subsystem Maturity Transparency
 
----
+We separate battle-tested core features from foundational modules so evaluators know exactly what is ready for daily use today:
 
-### 16. Bytecode Intermediate Representation (IR) & `.agtc` Compilation
-Compile your AgentLang scripts into optimized, distributable stack-based bytecode binaries:
-```bash
-agent compile app.agt -o app.agtc
-agent run app.agtc
-```
-- Faster startup and execution loop bypassing AST re-parsing.
-- Compact binary format with constant pools, symbol tables, and instructions.
-
----
-
-### 17. Hybrid Semantic Search & Semantic Prompt Caching
-- **`HybridVectorStore`**: Combines Dense Vector Embeddings (cosine similarity) with Sparse Lexical Search (BM25) using **Reciprocal Rank Fusion (RRF)** for state-of-the-art document retrieval.
-- **`SemanticPromptCache`**: Fuzzy semantic caching using cosine similarity threshold (default `0.80`), cutting redundant LLM API calls and costs.
-
----
-
-### 18. Auto-Remediation & Self-Healing Loops
-Never let a tool or API failure crash your autonomous agents:
-- **`AutoRemediator`**: Executes fallback tool chains (`ToolFallbacks`) or triggers argument reflector repair (`ReflectorRepair`) to fix malformed inputs and retry execution autonomously.
-
----
-
-### 19. Multi-Agent Evaluation & Benchmark Harness
-Benchmark and evaluate agent accuracy, latency, and tool-calling precision:
-```bash
-agent eval app.agt --dataset test_suite.json --agent ResearchAssistant
-```
-Generates comprehensive Markdown scorecards with pass/fail ratios and regression metrics.
-
----
-
-### 20. OpenAPI / Swagger Dynamic Tool Generator
-Connect any REST service to AgentLang in seconds:
-```csharp
-OpenApiToolGenerator.RegisterOpenApiIntoRegistry(registry, openApiJson, "stripe_api");
-```
-Instantly converts OpenAPI 3.0 path endpoints into first-class callable AgentLang tools.
-
----
-
-### 21. State Graph Orchestration (`StateGraph`) & Cyclic Workflows
-Model complex multi-agent reasoning, iterative loops, and branch transitions as state graphs:
-```csharp
-var graph = new StateGraph("CustomerSupportPipeline");
-graph.AddNode("triage", async (state, ct) => { ... });
-graph.AddNode("billingHandler", async (state, ct) => { ... });
-graph.AddConditionalEdge("triage", state => (string)state["intent"]);
-graph.InterruptBefore("billingHandler"); // Human-in-the-loop review
-graph.SetEntryPoint("triage");
-var compiled = graph.Compile();
-```
-- **Cycle Safety**: Guards against runaway infinite execution with `MaxCycles`.
-- **Fan-Out & Fan-In**: Parallel branch execution with custom state reducers.
-- **Human-in-the-Loop (HITL)**: `InterruptBefore` and `InterruptAfter` allow inspection and state mutation before resuming with `ResumeAsync`.
-- **Mermaid Export**: `graph.ToMermaid()` generates interactive flowcharts.
-
----
-
-### 22. Episodic & Entity Graph Memory (`EntityGraphMemory`)
-GraphRAG / Mem0-style long-term memory capturing knowledge relations:
-- Stores entities, attributes, relations `(Source, Relation, Target)`, and episodic interaction history.
-- **Auto Fact Extraction**: Extracts relationships from conversation text (e.g. `Reza created AgentLang`).
-- **Contextual Recall**: `RecallContext(query)` dynamically recalls relevant entity relationships and injects structured context into agent prompts.
-- **Multi-Hop Subgraph Traversals**: Explores connected entity subgraphs up to configurable depths.
-
----
-
-### 23. Strict Structured Schema Engine & Auto-Repair (`StructuredSchema`)
-Guarantees typed, schema-compliant JSON outputs from LLMs:
-```csharp
-var schema = SchemaBuilder.Create("AuditReport")
-    .AddString("title", required: true)
-    .AddInteger("vulnerabilitiesFound", required: true, min: 0)
-    .AddArray("cveList", SchemaType.String)
-    .Build();
-
-var result = StructuredOutputParser.Validate(llmOutput, schema);
-```
-- Compiles standard JSON Schema Draft 2020-12 specifications (`ToJsonSchema()`).
-- `AutoRepair` self-corrects malformed LLM outputs (fixes unquoted keys, single quotes, trailing commas, and unclosed braces/brackets).
-
----
-
-### 24. Streaming Protocol & Real-Time Event Engine
-Real-time token and lifecycle event streaming with W3C Server-Sent Events (SSE) support:
-```bash
-agent run app.agt --stream
-```
-- Emits real-time tokens, chain-of-thought steps, tool execution start/results, and status changes.
-- Backpressure-managed asynchronous channels (`AgentStreamChannel`).
-- Standard SSE format (`ToSseString()`) for plug-and-play web client integration.
-
----
-
-### 25. Hierarchical Task Planning & ReWOO Engine (`AgentLang.VM.Planning`)
-Decouple macro-strategy planning from tool execution to prevent context window bloat:
-```bash
-agent plan "Build full-text search indexing pipeline" --tools web_search,file_reader --execute
-```
-- **`PlanAndExecuteEngine`**: Generates directed task plans (`TaskPlan`), executing independent steps concurrently and dynamically triggering replanning (`ReplanAsync`) if an intermediate tool crashes.
-- **`ReWooEngine` (Reasoning Without Observation)**: 3-phase execution (`Planner -> Worker -> Solver`) binding variable placeholders (`#E1`, `#E2`) without wasteful intermediate LLM reasoning tokens (saving up to 5x tokens).
-- **`TreeOfThoughtsEngine`**: Multi-candidate Beam Search with scoring heuristics and path backtracking.
-
----
-
-### 26. Multi-Modal Native Artifact Pipeline (`ArtifactStore`)
-First-class storage for binary and structured data created by agents (datasets, charts, PDFs, reports):
-```csharp
-var art = vm.Artifacts.CreateTextArtifact("report.md", "# Analysis", "text/markdown");
-var v2 = vm.Artifacts.UpdateArtifact(art.Id, updatedBytes);
-```
-- Content-addressed integrity using SHA-256 hashes.
-- Lineage tracking with monotonic versioning and `ParentArtifactId`.
-- Automatic persistence under `.agent/artifacts/`.
-
----
-
-### 27. Data Loss Prevention (DLP) & Resource Access Boundaries
-Enterprise-grade security controls preventing accidental credential leaks:
-```csharp
-string clean = DataLossPrevention.Sanitize(prompt, DlpAction.Redact);
-```
-- **Automated Detection**: Detects and sanitizes OpenAI/Anthropic API keys, GitHub tokens, AWS keys, private keys, credit cards, passwords, and emails.
-- **Actions**: `Redact` (`[REDACTED:...]`), `Mask` (`sk-***123`), and `Block` (`DlpSecurityViolationException`).
-- **Resource Boundary Defense**: Prevents directory traversal attacks (`../`) and enforces network domain whitelisting with wildcards (`*.github.com`).
-- Run with `--dlp`: `agent run app.agt --dlp`.
-
----
-
-### 28. Deterministic Testing Cassette System (VCR / Tool Replay)
-Eliminate flaky agent tests and costly API bills during CI/CD:
-```csharp
-var recorder = new CassetteRecorder("regression_test", RecordMode.Replay);
-string output = await recorder.ExecuteWithCassetteAsync("search_tool", args, realExecutor);
-```
-- Records real tool executions into versioned JSON cassettes (`.agent/cassettes/`).
-- Replays recorded responses deterministically in offline CI pipelines with zero network overhead.
-
----
-
-### 29. First-Class Native Schemas (`schema`)
-Define type-safe structured data contracts and validation constraints natively in `.agt` code:
-```agentlang
-schema SecurityAuditReport {
-    target: string,
-    vulnerabilities_found: int(min: 0, max: 1000),
-    risk_level: string(regex: "^(low|medium|high|critical)$"),
-    passed: bool,
-    cve_tags: [string]
-}
-```
-- Direct keywords and syntax checking in compiler AST and Semantic Analyzer (`AL0038` duplicate detection).
-- In-line constraints: `min`, `max`, `regex`, `required`, and array types `[T]`.
-- Directly converts to VM `StructuredSchema` contracts for agent output parsing and auto-repair.
-
----
-
-### 30. Smart Cascading LLM Gateway & Circuit Breaker
-Eliminate rate-limit outages and provider downtimes with automatic failovers:
-```csharp
-var gateway = vm.Gateway;
-gateway.FallbackChain.AddRange(["gpt-4o", "claude-3-5-sonnet", "llama3.2"]);
-```
-- **Cascading Fallbacks**: Seamlessly fails over from primary to secondary models upon transient errors or HTTP failures.
-- **Provider Health Telemetry**: Live tracking of token consumption, request latency, and error frequencies.
-- **Circuit Breaker**: Trips from `Closed` to `Open` after consecutive failures, shielding unresponsive endpoints, with automatic `HalfOpen` cooldown probing.
-
----
-
-### 31. Native Offline Local LLM Execution (`Ollama`)
-Deploy autonomous agents in air-gapped, high-privacy, or offline enterprise environments:
-```agentlang
-agent OfflineAuditor {
-    model: "llama3.2"
-    persona: "Local privacy-first code reviewer"
-}
-```
-- Native `OllamaModelProvider` targeting local daemon endpoints (`/api/generate`).
-- Seamless support for open-weights models: Llama 3, Mistral, DeepSeek, Qwen, Phi, Gemma, CodeLlama.
-- Complete token count and generation telemetry without external cloud dependencies.
-
----
-
-### 32. Durable Agent Execution & Suspension Engine (`AgentLang.VM.Durable`)
-Orchestrate resilient, long-running agent workflows that survive process restarts and await external signals:
-```csharp
-var context = await vm.Durable.StartAsync("LoanApproval", stepCtx => {
-    stepCtx.SetVariable("applicant", "Bob");
-    // Pause execution awaiting external risk approval signal
-    stepCtx.Suspend(SuspensionReason.HumanApprovalRequired, "ManagerApproval");
-    return Task.CompletedTask;
-});
-
-// Resume at a later time upon receiving the signal
-await vm.Durable.ResumeAsync(context.ExecutionId, new ExecutionSignal("ManagerApproval", payload), stepCtx => {
-    stepCtx.Complete(new { status = "APPROVED" });
-    return Task.CompletedTask;
-});
-```
-- Complete state capture: step index, variables, agent histories, and received signals.
-- Pluggable persistence (`MemoryDurableStateStore` and `FileDurableStateStore` in `.agent/durable/`).
-- Signal-driven resumption without losing call stack or context.
-
----
-
-### 33. HTTP Web Microservice Gateway & Interactive Playground (`agent serve --http`)
-Expose AgentLang agents directly as high-performance REST & SSE microservices:
-```bash
-agent serve --http 8080
-```
-- **Endpoints**:
-  - `POST /api/v1/run`: Execute `.agt` scripts with parameter injection and JSON outputs.
-  - `POST /api/v1/stream`: Real-time Server-Sent Events (SSE) streaming for web clients and chat UIs.
-  - `POST /api/v1/resume`: Wake up and resume suspended durable workflows with signal payloads.
-  - `GET /api/v1/status`: Health check, active execution telemetry, and durable workflow overview.
-- **Embedded Web Playground (`/` or `/playground`)**: Built-in dark-mode interactive dashboard for composing scripts, executing runs, streaming SSE events, and inspecting durable workflows in real time.
-
----
-
-### 34. Language Server Protocol (LSP) & Official VS Code Extension
-World-class developer tooling with real-time compilation feedback and editor intelligence:
-```bash
-agent lsp
-# or
-agent serve --lsp
-```
-- **LSP Capabilities**:
-  - **Real-Time Diagnostics**: Instant feedback for syntax and semantic analyzer errors (`textDocument/publishDiagnostics`).
-  - **IntelliSense Auto-Completion**: Context-aware keywords, schemas, agents, tools, and popular LLM models (`textDocument/completion`).
-  - **Interactive Hover Documentation**: Rich markdown docstrings on hovering over keywords and declarations (`textDocument/hover`).
-  - **Document Outline & Breadcrumbs**: Hierarchical symbol outline of agents, schemas, fields, and workflows (`textDocument/documentSymbol`).
-  - **Go To Definition**: Jump directly to declarations of agents, schemas, workflows, and pipelines across documents (`textDocument/definition`).
-  - **Document Formatting**: In-process code formatting standardizing 4-space indentation and brace placement (`textDocument/formatting`).
-  - **Code Actions & Quick Fixes**: Automated compiler diagnostics quick fixes (`textDocument/codeAction`).
-  - **Rename Symbol**: Project-wide identifier and agent symbol renaming (`textDocument/rename`).
-  - **Find All References**: Find all declarations and usages of any symbol (`textDocument/references`).
-- **Official VS Code Extension (`editors/vscode`)**:
-  - TextMate grammar syntax highlighting (`.agt` and `.agent`).
-  - Bracket matching, auto-closing pairs, and comment formatting.
-
----
-
-### 35. Hot-Reload File Watcher & Frontier LLM Lineup
-Speed up your agent development workflow with live hot-reloading:
-```bash
-agent watch main.agt --run
-```
-- **Instant Feedback**: Debounced file watcher (250ms) triggers automated syntax/semantic verification on save.
-- **Auto-Execution**: Add `--run` to immediately run the agent pipeline upon clean compilation.
-- **Frontier & Production LLM Lineup**: Native out-of-the-box configuration and aliases for the newest generation of frontier and production models:
-  - **Google Gemini**: `gemini-4-argon`, `gemini-4-carbon`, `gemini-3.8-flash`, `gemini-3.8-live`, `gemini-2.5-pro` (default), `gemini-2.5-flash`.
-  - **OpenAI**: `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna`, `gpt-4o` (default), `o3-mini`, `o4-mini`, `o3`.
-  - **Anthropic**: `claude-opus-5.5`, `claude-sonnet-5.5`, `claude-fable-5.1`, `claude-3-7-sonnet` (default), `claude-3-5-sonnet`.
-  - **DeepSeek & Open-Weights**: `deepseek-v4`, `deepseek-v4.1-flash`, `deepseek-chat`, `deepseek-reasoner`, `llama-4-maverick`, `llama-3.3-70b-instruct`.
-
----
-
-### 36. Core Standard Library & Project Configuration (`agent.config.json`)
-AgentLang provides a rich built-in standard library and declarative project management:
-```agentlang
-let data = json.parse("{\"status\": \"active\", \"score\": 98}")
-let clean_name = trim("   Agent Alpha   ")
-let upper = to_upper(clean_name)
-let rounded = math.round(3.14159, 2)
-let now = time.now()
-```
-Initialize and configure projects with `agent init`:
-```bash
-agent init my-agent-app
-```
-`agent.config.json`:
-```json
-{
-  "name": "my-agent-app",
-  "version": "0.1.0",
-  "default_model": "gemini-4-argon",
-  "budget_limit_usd": 10.0,
-  "timeout": "30s",
-  "env": {
-    "APP_ENV": "production"
-  }
-}
-```
-
----
-
-## 🛠️ CLI Reference
-
-| Command | Description |
-| :--- | :--- |
-| `agent run <file> [--trace] [--stream] [--dlp]` | Execute an AgentLang script with OpenTelemetry tracing, real-time event streaming, or DLP redaction |
-| `agent watch <file> [--run]` | Watch AgentLang file for changes, auto-evaluating syntax and optionally running the agent pipeline |
-| `agent serve [--mcp \| --http [port] \| --lsp]` | Start an MCP server, HTTP Web Gateway with Playground, or LSP language server |
-| `agent lsp` | Start standard Language Server Protocol (LSP) server over stdio |
-| `agent init [name]` | Scaffold an `agent.config.json` project configuration file |
-| `agent plan "<goal>" [--tools] [--execute]` | Generate or execute a hierarchical multi-step task plan DAG |
-| `agent compile <file> [-o]` | Compile an AgentLang script into an optimized `.agtc` bytecode binary |
-| `agent eval <file> --dataset`| Evaluate agent performance against a benchmark dataset |
-| `agent checkpoint [list\|show]`| Inspect and list persistent workflow execution checkpoints |
-| `agent chat <file> [agent]` | Interactive terminal chat with real-time thought traces |
-| `agent repl` | Launch interactive REPL environment |
-| `agent check [file]` | Static syntax and semantic verification with human-friendly diagnostics |
-| `agent format [file] [-w]` | Format AgentLang source code |
-| `agent test [target]` | Run test suites |
-| `agent build <file> [flags]` | Validate, transpile (`--target python\|ts`), or dockerize (`--docker`) |
-| `agent pack [dir]` | Bundle project into distributable `.agtpkg` archive |
-| `agent docker [dir] [entry]`| Generate production `Dockerfile` and `.dockerignore` |
-| `agent new <name>` | Scaffold a new AgentLang project |
-| `agent doctor` | Diagnose runtime, models, tools, and search providers |
-| `agent install <pkg>` | Install a project dependency |
+| Subsystem | Status | Codebase Footprint |
+| :--- | :---: | :--- |
+| Lexer, Parser, AST & Semantic Analyzer | 🟢 **Core Stable** | 37 files · 5,569 LOC · tested across 241 cases |
+| CLI, `check --json`, HTTP/SSE Gateway & LSP 3.17 | 🟢 **Core Stable** | 2,340+ LOC CLI + VM server/LSP subsystems |
+| Model Providers (OpenAI, Gemini, Claude, DeepSeek, Ollama) & Streaming | 🟢 **Core Stable** | 13 files · 1,603 LOC · fail-fast auth + SSE/NDJSON |
+| Bytecode Compiler & Sandboxed Stack VM (`.agtc`) | 🟢 **Core Stable** | Part of `AgentLang.VM` (6,967 LOC total) |
+| Hierarchical Planners (ReWOO / ToT), Entity Graph Memory, DLP Security, Transpilers | 🟡 **Foundational / Experimental** | Unit-tested prototypes; APIs evolving toward `v1.0.0` |
 
 ---
 
 ## 🧪 Testing & Verification
 
-The test suite contains **241 automated tests (223 unit tests + 18 integration tests)** with a **100% pass rate**:
+The solution includes **241 automated tests (223 unit tests + 18 integration tests)** across compiler, semantic analysis, bytecode VM, MCP, streaming, and example scripts:
 
 ```bash
-dotnet test tests/AgentLang.Tests/AgentLang.Tests.csproj --no-build
-dotnet test tests/AgentLang.IntegrationTests/AgentLang.IntegrationTests.csproj --no-build
+dotnet test AgentLang.sln
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 223, Skipped: 0, Total: 223, Duration: 1.1 s - AgentLang.Tests.dll (net10.0)
-Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18, Duration: 1.0 s - AgentLang.IntegrationTests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 223, Skipped: 0, Total: 223 - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18 - AgentLang.IntegrationTests.dll (net10.0)
 ```
 
 ---
