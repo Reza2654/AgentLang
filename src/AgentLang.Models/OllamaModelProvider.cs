@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace AgentLang.Models;
@@ -37,23 +36,14 @@ public sealed class OllamaModelProvider : IModelProvider
             ? request.ModelName[7..]
             : request.ModelName;
 
-        var payload = new
-        {
-            model = actualModel,
-            prompt = request.Prompt,
-            system = request.SystemInstruction,
-            stream = false,
-            options = new
-            {
-                temperature = request.Temperature
-            }
-        };
+        string payloadJson = ModelJsonHelper.BuildOllamaPayload(actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: false);
 
         var sw = Stopwatch.StartNew();
         try
         {
             string endpoint = $"{BaseUrl.TrimEnd('/')}/api/generate";
-            var response = await _httpClient.PostAsJsonAsync(endpoint, payload, ct);
+            using var contentBody = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(endpoint, contentBody, ct);
             sw.Stop();
 
             if (!response.IsSuccessStatusCode)
@@ -85,20 +75,11 @@ public sealed class OllamaModelProvider : IModelProvider
             ? request.ModelName[7..]
             : request.ModelName;
 
-        var payload = new
-        {
-            model = actualModel,
-            prompt = request.Prompt,
-            system = request.SystemInstruction,
-            stream = true,
-            options = new
-            {
-                temperature = request.Temperature
-            }
-        };
+        string payloadJson = ModelJsonHelper.BuildOllamaPayload(actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: true);
 
         string endpoint = $"{BaseUrl.TrimEnd('/')}/api/generate";
-        using var response = await _httpClient.PostAsJsonAsync(endpoint, payload, ct);
+        using var contentBody = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
+        using var response = await _httpClient.PostAsync(endpoint, contentBody, ct);
 
         if (!response.IsSuccessStatusCode)
         {

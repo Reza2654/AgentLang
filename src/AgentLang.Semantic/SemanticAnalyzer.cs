@@ -22,7 +22,7 @@ public sealed class SemanticAnalyzer : AstVisitor
 
     private static readonly HashSet<string> BuiltInModules = new(StringComparer.OrdinalIgnoreCase)
     {
-        "text", "json", "math", "time", "collections", "crypto", "rag", "sandbox", "env"
+        "text", "json", "math", "time", "collections", "crypto", "rag", "sandbox", "env", "data", "db"
     };
 
     private static readonly HashSet<string> BuiltInFunctions = new(StringComparer.Ordinal)

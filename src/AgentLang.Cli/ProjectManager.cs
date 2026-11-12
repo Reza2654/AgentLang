@@ -73,11 +73,11 @@ public static class ProjectManager
 
         // 1. agent.json manifest & agent.lock
         var manifest = PackageManifest.Default(projectName);
-        string manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+        string manifestJson = SerializeManifest(manifest);
         File.WriteAllText(Path.Combine(projectPath, AgentManifestFileName), manifestJson);
 
         var lockfile = PackageLock.FromManifest(manifest);
-        string lockJson = JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true });
+        string lockJson = SerializeLock(lockfile);
         File.WriteAllText(Path.Combine(projectPath, LockFileName), lockJson);
 
         // 2. permissions/default.permission
@@ -170,13 +170,13 @@ public static class ProjectManager
             return PackageManifest.Default(Path.GetFileName(directory));
 
         string json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<PackageManifest>(json) ?? PackageManifest.Default(Path.GetFileName(directory));
+        return DeserializeManifest(json, Path.GetFileName(directory));
     }
 
     public static void SaveManifest(string directory, PackageManifest manifest)
     {
         string path = Path.Combine(directory, AgentManifestFileName);
-        string json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+        string json = SerializeManifest(manifest);
         File.WriteAllText(path, json);
 
         // Also update lockfile
@@ -186,8 +186,78 @@ public static class ProjectManager
 
     public static void SaveLock(string directory, PackageLock lockfile)
     {
-        string lockJson = JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true });
+        string lockJson = SerializeLock(lockfile);
         File.WriteAllText(Path.Combine(directory, LockFileName), lockJson);
+    }
+
+    private static string SerializeManifest(PackageManifest manifest)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+        {
+            w.WriteStartObject();
+            w.WriteString("Name", manifest.Name);
+            w.WriteString("Version", manifest.Version);
+            w.WriteString("Description", manifest.Description);
+            w.WriteStartObject("Dependencies");
+            foreach (var dep in manifest.Dependencies)
+                w.WriteString(dep.Key, dep.Value);
+            w.WriteEndObject();
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    private static string SerializeLock(PackageLock lockfile)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+        {
+            w.WriteStartObject();
+            w.WriteString("Name", lockfile.Name);
+            w.WriteString("Version", lockfile.Version);
+            w.WriteStartObject("Dependencies");
+            foreach (var dep in lockfile.Dependencies)
+            {
+                w.WriteStartObject(dep.Key);
+                w.WriteString("Version", dep.Value.Version);
+                w.WriteString("Integrity", dep.Value.Integrity);
+                if (dep.Value.Resolved != null) w.WriteString("Resolved", dep.Value.Resolved);
+                else w.WriteNull("Resolved");
+                w.WriteEndObject();
+            }
+            w.WriteEndObject();
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    private static PackageManifest DeserializeManifest(string json, string fallbackName)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            return PackageManifest.Default(fallbackName);
+
+        string name = fallbackName;
+        string version = "0.1.0";
+        string description = "";
+        var deps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            if (prop.Name.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                name = prop.Value.GetString() ?? fallbackName;
+            else if (prop.Name.Equals("Version", StringComparison.OrdinalIgnoreCase))
+                version = prop.Value.GetString() ?? "0.1.0";
+            else if (prop.Name.Equals("Description", StringComparison.OrdinalIgnoreCase))
+                description = prop.Value.GetString() ?? "";
+            else if (prop.Name.Equals("Dependencies", StringComparison.OrdinalIgnoreCase) && prop.Value.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var d in prop.Value.EnumerateObject())
+                    deps[d.Name] = d.Value.ToString();
+            }
+        }
+        return new PackageManifest(name, version, description, deps);
     }
 
     public static string PackProject(string projectPath, string? outputPath = null)
@@ -203,7 +273,7 @@ public static class ProjectManager
         if (!File.Exists(lockPath))
         {
             var lockfile = PackageLock.FromManifest(manifest);
-            File.WriteAllText(lockPath, JsonSerializer.Serialize(lockfile, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(lockPath, SerializeLock(lockfile));
         }
 
         string targetZip;

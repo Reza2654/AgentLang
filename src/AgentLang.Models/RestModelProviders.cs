@@ -5,6 +5,112 @@ using System.Text.Json;
 
 namespace AgentLang.Models;
 
+internal static class ModelJsonHelper
+{
+    private static string WriteJson(Action<Utf8JsonWriter> writeAction)
+    {
+        using var ms = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(ms))
+        {
+            writeAction(writer);
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    public static string BuildChatCompletionsPayload(
+        string model, string prompt, string? systemInstruction, double temperature, bool stream) =>
+        WriteJson(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("model", model);
+            w.WriteStartArray("messages");
+            if (!string.IsNullOrWhiteSpace(systemInstruction))
+            {
+                w.WriteStartObject();
+                w.WriteString("role", "system");
+                w.WriteString("content", systemInstruction);
+                w.WriteEndObject();
+            }
+            w.WriteStartObject();
+            w.WriteString("role", "user");
+            w.WriteString("content", prompt);
+            w.WriteEndObject();
+            w.WriteEndArray();
+            w.WriteNumber("temperature", temperature);
+            if (stream) w.WriteBoolean("stream", true);
+            w.WriteEndObject();
+        });
+
+    public static string BuildGeminiPayload(string prompt, string? systemInstruction, double temperature) =>
+        WriteJson(w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("contents");
+            w.WriteStartObject();
+            w.WriteStartArray("parts");
+            w.WriteStartObject();
+            w.WriteString("text", prompt);
+            w.WriteEndObject();
+            w.WriteEndArray();
+            w.WriteEndObject();
+            w.WriteEndArray();
+
+            w.WriteStartObject("generationConfig");
+            w.WriteNumber("temperature", temperature);
+            w.WriteEndObject();
+
+            if (!string.IsNullOrWhiteSpace(systemInstruction))
+            {
+                w.WriteStartObject("system_instruction");
+                w.WriteStartArray("parts");
+                w.WriteStartObject();
+                w.WriteString("text", systemInstruction);
+                w.WriteEndObject();
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            w.WriteEndObject();
+        });
+
+    public static string BuildAnthropicPayload(
+        string model, string prompt, string? systemInstruction, double temperature, bool stream, int maxTokens = 1024) =>
+        WriteJson(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("model", model);
+            w.WriteNumber("max_tokens", maxTokens);
+            w.WriteNumber("temperature", temperature);
+            if (stream) w.WriteBoolean("stream", true);
+            w.WriteStartArray("messages");
+            w.WriteStartObject();
+            w.WriteString("role", "user");
+            w.WriteString("content", prompt);
+            w.WriteEndObject();
+            w.WriteEndArray();
+            if (!string.IsNullOrWhiteSpace(systemInstruction))
+            {
+                w.WriteString("system", systemInstruction);
+            }
+            w.WriteEndObject();
+        });
+
+    public static string BuildOllamaPayload(
+        string model, string prompt, string? systemInstruction, double temperature, bool stream) =>
+        WriteJson(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("model", model);
+            w.WriteString("prompt", prompt);
+            if (!string.IsNullOrWhiteSpace(systemInstruction))
+                w.WriteString("system", systemInstruction);
+            w.WriteBoolean("stream", stream);
+            w.WriteStartObject("options");
+            w.WriteNumber("temperature", temperature);
+            w.WriteEndObject();
+            w.WriteEndObject();
+        });
+}
+
 public sealed class OpenAiModelProvider : IModelProvider
 {
     public string ProviderId => "openai";
@@ -81,21 +187,8 @@ public sealed class OpenAiModelProvider : IModelProvider
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
-            var messages = new List<object>();
-            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-            {
-                messages.Add(new { role = "system", content = request.SystemInstruction });
-            }
-            messages.Add(new { role = "user", content = request.Prompt });
-
-            var payload = new
-            {
-                model = actualModel,
-                messages = messages,
-                temperature = request.Temperature
-            };
-
-            string json = JsonSerializer.Serialize(payload);
+            string json = ModelJsonHelper.BuildChatCompletionsPayload(
+                actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: false);
             httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.SendAsync(httpRequest, ct);
@@ -151,24 +244,11 @@ public sealed class OpenAiModelProvider : IModelProvider
             throw new InvalidOperationException($"[AL-AUTH-001] Missing OpenAI API Key: Model '{actualModel}' requires 'OPENAI_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
         }
 
-        var messages = new List<object>();
-        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-        {
-            messages.Add(new { role = "system", content = request.SystemInstruction });
-        }
-        messages.Add(new { role = "user", content = request.Prompt });
-
-        var payload = new
-        {
-            model = actualModel,
-            messages = messages,
-            temperature = request.Temperature,
-            stream = true
-        };
-
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        string streamJson = ModelJsonHelper.BuildChatCompletionsPayload(
+            actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: true);
+        httpRequest.Content = new StringContent(streamJson, Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
@@ -288,30 +368,7 @@ public sealed class GeminiModelProvider : IModelProvider
         {
             string url = $"https://generativelanguage.googleapis.com/v1beta/models/{actualModel}:generateContent?key={apiKey}";
 
-            var payload = new Dictionary<string, object?>
-            {
-                ["contents"] = new[]
-                {
-                    new
-                    {
-                        parts = new[] { new { text = request.Prompt } }
-                    }
-                },
-                ["generationConfig"] = new
-                {
-                    temperature = request.Temperature
-                }
-            };
-
-            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-            {
-                payload["system_instruction"] = new
-                {
-                    parts = new[] { new { text = request.SystemInstruction } }
-                };
-            }
-
-            string json = JsonSerializer.Serialize(payload);
+            string json = ModelJsonHelper.BuildGeminiPayload(request.Prompt, request.SystemInstruction, request.Temperature);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.PostAsync(url, content, ct);
@@ -381,31 +438,9 @@ public sealed class GeminiModelProvider : IModelProvider
 
         string url = $"https://generativelanguage.googleapis.com/v1beta/models/{actualModel}:streamGenerateContent?alt=sse&key={apiKey}";
 
-        var payload = new Dictionary<string, object?>
-        {
-            ["contents"] = new[]
-            {
-                new
-                {
-                    parts = new[] { new { text = request.Prompt } }
-                }
-            },
-            ["generationConfig"] = new
-            {
-                temperature = request.Temperature
-            }
-        };
-
-        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-        {
-            payload["system_instruction"] = new
-            {
-                parts = new[] { new { text = request.SystemInstruction } }
-            };
-        }
-
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url);
-        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        string streamGeminiJson = ModelJsonHelper.BuildGeminiPayload(request.Prompt, request.SystemInstruction, request.Temperature);
+        httpRequest.Content = new StringContent(streamGeminiJson, Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
@@ -518,23 +553,8 @@ public sealed class AnthropicModelProvider : IModelProvider
             httpRequest.Headers.Add("x-api-key", key);
             httpRequest.Headers.Add("anthropic-version", "2023-06-01");
 
-            var payload = new Dictionary<string, object?>
-            {
-                ["model"] = actualModel,
-                ["max_tokens"] = 1024,
-                ["temperature"] = request.Temperature,
-                ["messages"] = new[]
-                {
-                    new { role = "user", content = request.Prompt }
-                }
-            };
-
-            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-            {
-                payload["system"] = request.SystemInstruction;
-            }
-
-            string json = JsonSerializer.Serialize(payload);
+            string json = ModelJsonHelper.BuildAnthropicPayload(
+                actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: false);
             httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.SendAsync(httpRequest, ct);
@@ -589,24 +609,9 @@ public sealed class AnthropicModelProvider : IModelProvider
         httpRequest.Headers.Add("x-api-key", key);
         httpRequest.Headers.Add("anthropic-version", "2023-06-01");
 
-        var payload = new Dictionary<string, object?>
-        {
-            ["model"] = actualModel,
-            ["max_tokens"] = 1024,
-            ["temperature"] = request.Temperature,
-            ["stream"] = true,
-            ["messages"] = new[]
-            {
-                new { role = "user", content = request.Prompt }
-            }
-        };
-
-        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-        {
-            payload["system"] = request.SystemInstruction;
-        }
-
-        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        string streamClaudeJson = ModelJsonHelper.BuildAnthropicPayload(
+            actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: true);
+        httpRequest.Content = new StringContent(streamClaudeJson, Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
@@ -717,21 +722,8 @@ public sealed class DeepSeekModelProvider : IModelProvider
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
-            var messages = new List<object>();
-            if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-            {
-                messages.Add(new { role = "system", content = request.SystemInstruction });
-            }
-            messages.Add(new { role = "user", content = request.Prompt });
-
-            var payload = new
-            {
-                model = actualModel,
-                messages = messages,
-                temperature = request.Temperature
-            };
-
-            string json = JsonSerializer.Serialize(payload);
+            string json = ModelJsonHelper.BuildChatCompletionsPayload(
+                actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: false);
             httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.SendAsync(httpRequest, ct);
@@ -786,24 +778,11 @@ public sealed class DeepSeekModelProvider : IModelProvider
             throw new InvalidOperationException($"[AL-AUTH-004] Missing DeepSeek API Key: Model '{actualModel}' requires 'DEEPSEEK_API_KEY'. Please configure it via environment variable or in 'agent.config.json'.");
         }
 
-        var messages = new List<object>();
-        if (!string.IsNullOrWhiteSpace(request.SystemInstruction))
-        {
-            messages.Add(new { role = "system", content = request.SystemInstruction });
-        }
-        messages.Add(new { role = "user", content = request.Prompt });
-
-        var payload = new
-        {
-            model = actualModel,
-            messages = messages,
-            temperature = request.Temperature,
-            stream = true
-        };
-
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        string streamJson = ModelJsonHelper.BuildChatCompletionsPayload(
+            actualModel, request.Prompt, request.SystemInstruction, request.Temperature, stream: true);
+        httpRequest.Content = new StringContent(streamJson, Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)

@@ -25,7 +25,20 @@ public enum AgentOpCode : byte
     EmitEvent = 17,
     Print = 18,
     Return = 19,
-    Halt = 20
+    Halt = 20,
+    DefineAgent = 21,
+    GetMember = 22,
+    CallFunc = 23,
+    MakeList = 24,
+    MakeMap = 25,
+    Negate = 26,
+    Not = 27,
+    LogicalAnd = 28,
+    LogicalOr = 29,
+    CompareNeq = 30,
+    CompareLte = 31,
+    CompareGte = 32,
+    Modulo = 33
 }
 
 public readonly record struct BytecodeInstruction(AgentOpCode OpCode, int Operand = 0, int Line = 1)

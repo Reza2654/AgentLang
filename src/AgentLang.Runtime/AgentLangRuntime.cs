@@ -3,6 +3,7 @@ using AgentLang.AST;
 using AgentLang.Errors;
 using AgentLang.Models;
 using AgentLang.Runtime.Agents;
+using AgentLang.Runtime.Data;
 using AgentLang.Runtime.Memory;
 using AgentLang.Runtime.Values;
 using AgentLang.Runtime.Stdlib;
@@ -25,6 +26,7 @@ public sealed class AgentLangRuntime
     private readonly SecurityEngine _securityEngine;
     private readonly EventBus _eventBus;
     private readonly IPersistentMemoryStore _memoryStore;
+    private readonly SchemaEntityStore _entityStore;
     private readonly TextWriter _output;
     private readonly TextReader _input;
     private readonly AgentReActEngine _reactEngine;
@@ -79,6 +81,7 @@ public sealed class AgentLangRuntime
     public ToolRegistry ToolRegistry => _toolRegistry;
     public SecurityEngine SecurityEngine => _securityEngine;
     public IPersistentMemoryStore MemoryStore => _memoryStore;
+    public SchemaEntityStore EntityStore => _entityStore;
     public AiTrainingEngine TrainingEngine => _trainingEngine;
     public AgentReActEngine ReActEngine => _reactEngine;
     public IReadOnlyDictionary<string, McpClient> McpClients => _mcpClients;
@@ -99,13 +102,15 @@ public sealed class AgentLangRuntime
         EventBus? eventBus = null,
         IPersistentMemoryStore? memoryStore = null,
         TextWriter? output = null,
-        TextReader? input = null)
+        TextReader? input = null,
+        string? entityStorageDirectory = null)
     {
         _securityEngine = securityEngine ?? new SecurityEngine();
         _modelRegistry = modelRegistry ?? new ModelRegistry();
         _toolRegistry = toolRegistry ?? new ToolRegistry(_securityEngine);
         _eventBus = eventBus ?? new EventBus();
         _memoryStore = memoryStore ?? new LocalFileMemoryStore();
+        _entityStore = new SchemaEntityStore(entityStorageDirectory);
         _output = output ?? Console.Out;
         _input = input ?? Console.In;
         _reactEngine = new AgentReActEngine(_toolRegistry, _modelRegistry, _securityEngine, _output, _eventBus);
@@ -272,6 +277,7 @@ public sealed class AgentLangRuntime
 
                 case SchemaDeclarationNode schemaDecl:
                     _schemaDefs[schemaDecl.Name] = schemaDecl;
+                    _entityStore.RegisterSchema(schemaDecl);
                     _globalScope.SetLocal(schemaDecl.Name, schemaDecl);
                     break;
 
@@ -2379,6 +2385,11 @@ public sealed class AgentLangRuntime
             {
                 stdModArgs.Add(await EvaluateExpressionAsync(arg, scope, ct));
             }
+            if (targetModId.Name.Equals("data", StringComparison.OrdinalIgnoreCase) ||
+                targetModId.Name.Equals("db", StringComparison.OrdinalIgnoreCase))
+            {
+                return await InvokeDataModuleAsync(stdMember.MemberName, stdModArgs, ct);
+            }
             if (StandardLibrary.TryInvoke(targetModId.Name, stdMember.MemberName, stdModArgs, out var stdModResult))
             {
                 return stdModResult;
@@ -3947,6 +3958,88 @@ public sealed class AgentLangRuntime
                 targetScope.SetLocal(k, v);
                 _globalScope.SetLocal(k, v);
             }
+        }
+    }
+
+    public async Task<object?> InvokeDataModuleAsync(string methodName, IReadOnlyList<object?> args, CancellationToken ct = default)
+    {
+        static string ResolveSchemaName(object? val) => val switch
+        {
+            SchemaDeclarationNode s => s.Name,
+            _ => val?.ToString() ?? string.Empty
+        };
+
+        static IDictionary<string, object?> AsRecord(object? val) => val switch
+        {
+            IDictionary<string, object?> dict => dict,
+            StateInstanceValue state => state.Fields,
+            _ => throw new AgentLangRuntimeException("Expected map/object record for data operation.", errorCode: "AL-DATA-002")
+        };
+
+        async Task EnforceDataRbacAsync(string schemaName, string op)
+        {
+            var agent = CurrentAgent;
+            if (agent != null && !string.IsNullOrWhiteSpace(agent.PermissionPolicy))
+            {
+                await _securityEngine.AuthorizeAsync(agent.Name, agent.PermissionPolicy, $"data.{schemaName}.{op}", $"{methodName} on schema {schemaName}", ct);
+            }
+        }
+
+        string opName = methodName.ToLowerInvariant();
+        if (opName == "schemas")
+        {
+            return _entityStore.GetSchemas().Select(s => (object?)s.Name).ToList();
+        }
+
+        if (args.Count == 0)
+            throw new AgentLangRuntimeException($"data.{methodName}() requires at least a schema argument.", errorCode: "AL-DATA-002");
+
+        string schema = ResolveSchemaName(args[0]);
+
+        switch (opName)
+        {
+            case "insert" or "create" or "add":
+                await EnforceDataRbacAsync(schema, "write");
+                var record = args.Count > 1 ? AsRecord(args[1]) : throw new AgentLangRuntimeException("data.insert() requires a record map.", errorCode: "AL-DATA-002");
+                string? customId = args.Count > 2 ? args[2]?.ToString() : null;
+                return _entityStore.Insert(schema, record, customId);
+
+            case "get" or "find":
+                await EnforceDataRbacAsync(schema, "read");
+                string getId = args.Count > 1 ? args[1]?.ToString() ?? "" : throw new AgentLangRuntimeException("data.get() requires an id.", errorCode: "AL-DATA-002");
+                return _entityStore.Get(schema, getId);
+
+            case "list" or "query" or "all":
+                await EnforceDataRbacAsync(schema, "read");
+                IDictionary<string, object?>? filter = args.Count > 1 && args[1] != null ? AsRecord(args[1]) : null;
+                return _entityStore.List(schema, filter).Cast<object?>().ToList();
+
+            case "update" or "patch":
+                await EnforceDataRbacAsync(schema, "write");
+                string updId = args.Count > 1 ? args[1]?.ToString() ?? "" : throw new AgentLangRuntimeException("data.update() requires an id.", errorCode: "AL-DATA-002");
+                var patch = args.Count > 2 ? AsRecord(args[2]) : throw new AgentLangRuntimeException("data.update() requires a patch map.", errorCode: "AL-DATA-002");
+                return _entityStore.Update(schema, updId, patch);
+
+            case "delete" or "remove":
+                await EnforceDataRbacAsync(schema, "delete");
+                string delId = args.Count > 1 ? args[1]?.ToString() ?? "" : throw new AgentLangRuntimeException("data.delete() requires an id.", errorCode: "AL-DATA-002");
+                return _entityStore.Delete(schema, delId);
+
+            case "validate":
+                var valRecord = args.Count > 1 ? AsRecord(args[1]) : throw new AgentLangRuntimeException("data.validate() requires a record map.", errorCode: "AL-DATA-002");
+                var validation = _entityStore.Validate(schema, valRecord);
+                return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["valid"] = validation.IsValid,
+                    ["errors"] = validation.Errors.Cast<object?>().ToList()
+                };
+
+            case "count":
+                await EnforceDataRbacAsync(schema, "read");
+                return (long)_entityStore.Count(schema);
+
+            default:
+                throw new AgentLangRuntimeException($"Unknown data module method 'data.{methodName}'.", errorCode: "AL-DATA-003");
         }
     }
 }

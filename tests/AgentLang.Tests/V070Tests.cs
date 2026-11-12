@@ -182,7 +182,7 @@ public class V070Tests
             string statusJson = await statusResp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(statusJson);
             Assert.Equal("healthy", doc.RootElement.GetProperty("status").GetString());
-            Assert.Equal("0.7.0", doc.RootElement.GetProperty("version").GetString());
+            Assert.Equal(AgentLang.Cli.Program.Version, doc.RootElement.GetProperty("version").GetString());
 
             // 2. GET /playground
             var playgroundResp = await client.GetAsync("/playground");
@@ -190,7 +190,7 @@ public class V070Tests
             Assert.Equal("text/html; charset=utf-8", playgroundResp.Content.Headers.ContentType?.ToString());
             string html = await playgroundResp.Content.ReadAsStringAsync();
             Assert.Contains("AgentLang Playground", html);
-            Assert.Contains("v0.7.0", html);
+            Assert.Contains($"v{AgentLang.Cli.Program.Version}", html);
         }
         finally
         {

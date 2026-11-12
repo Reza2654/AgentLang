@@ -1,12 +1,12 @@
-# AgentLang — v0.9.1
+# AgentLang — v0.9.2
 
 > **A Statically-Checked DSL, Compiler, and Stack-Based Bytecode VM for Autonomous AI Agents**  
 > *Built from scratch in C# 14 on .NET 10 with zero external runtime dependencies (Standard BCL only).*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v0.9.1-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-241%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v0.9.2-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-246%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > **Note on Naming:** This repository (`Reza2654/AgentLang`) is an independent, MIT-licensed compiler and bytecode VM implemented in C#/.NET. It is unrelated to Fractl's TypeScript/Node.js web application generator (`agentlang-ai/agentlang`).
@@ -122,7 +122,7 @@ Reproduce these measurements directly on your machine:
 powershell -ExecutionPolicy Bypass -File benchmarks/benchmark.ps1
 ```
 
-> **Note on Full Native AOT (`-p:PublishAot=true`):** Core compiler/CLI JSON diagnostics (`CheckCommand`, `Diagnostics`) use zero-reflection `Utf8JsonWriter`, while optional runtime/VM serialization components (REST providers, MCP server, HTTP gateway) still use `System.Text.Json` reflection serialization (emitting trim/AOT warnings `IL2026`/`IL3050` during publish). Full zero-warning Native AOT across all VM modules is tracked on the roadmap toward `v1.0.0`.
+> **Note on Full Native AOT (`-p:PublishAot=true`):** Core compiler/CLI JSON (`CheckCommand`, `Diagnostics`, `ProjectConfig`, `ProjectManager`), `SchemaEntityStore`, `AgentHttpServer`, and all core LLM providers (`RestModelProviders`, `OllamaModelProvider`) use zero-reflection `Utf8JsonWriter`/`JsonDocument`, while remaining optional modules (`McpServer`, `EvaluationHarness`, `DurableState`, `ExecutionCheckpoint`, `ToolCassette`) still emit `IL2026` trim warnings during publish. Full zero-warning Native AOT across every optional VM subsystem is tracked toward `v1.0.0`.
 
 ---
 
@@ -132,24 +132,24 @@ We separate battle-tested core features from foundational modules so evaluators 
 
 | Subsystem | Status | Codebase Footprint |
 | :--- | :---: | :--- |
-| Lexer, Parser, AST & Semantic Analyzer | 🟢 **Core Stable** | 37 files · 5,569 LOC · tested across 241 cases |
-| CLI, `check --json`, HTTP/SSE Gateway & LSP 3.17 | 🟢 **Core Stable** | 2,340+ LOC CLI + VM server/LSP subsystems |
-| Model Providers (OpenAI, Gemini, Claude, DeepSeek, Ollama) & Streaming | 🟢 **Core Stable** | 13 files · 1,603 LOC · fail-fast auth + SSE/NDJSON |
-| Bytecode Compiler & Sandboxed Stack VM (`.agtc`) | 🟢 **Core Stable** | Part of `AgentLang.VM` (6,967 LOC total) |
+| Lexer, Parser, AST & Semantic Analyzer | 🟢 **Core Stable** | 37 files · 5,569+ LOC · tested across 246 cases |
+| CLI, `check --json`, Entity CRUD + OpenAPI 3.0 Gateway & LSP 3.17 | 🟢 **Core Stable** | 2,340+ LOC CLI + VM server/LSP/entity subsystems |
+| Model Providers (OpenAI, Gemini, Claude, DeepSeek, Ollama) & Streaming | 🟢 **Core Stable** | Zero-reflection HTTP JSON + fail-fast auth + SSE/NDJSON |
+| Bytecode Compiler & Sandboxed Stack VM (`.agtc`) | 🟢 **Core Stable** | Full agent, loop, stdlib, member access & `data.*` execution parity |
 | Hierarchical Planners (ReWOO / ToT), Entity Graph Memory, DLP Security, Transpilers | 🟡 **Foundational / Experimental** | Unit-tested prototypes; APIs evolving toward `v1.0.0` |
 
 ---
 
 ## 🧪 Testing & Verification
 
-The solution includes **241 automated tests (223 unit tests + 18 integration tests)** across compiler, semantic analysis, bytecode VM, MCP, streaming, and example scripts:
+The solution includes **246 automated tests (228 unit tests + 18 integration tests)** across compiler, semantic analysis, persistent entity storage, HTTP/OpenAPI APIs, bytecode VM, MCP, streaming, and example scripts:
 
 ```bash
 dotnet test AgentLang.sln
 ```
 
 ```text
-Passed!  - Failed: 0, Passed: 223, Skipped: 0, Total: 223 - AgentLang.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 228, Skipped: 0, Total: 228 - AgentLang.Tests.dll (net10.0)
 Passed!  - Failed: 0, Passed:  18, Skipped: 0, Total:  18 - AgentLang.IntegrationTests.dll (net10.0)
 ```
 

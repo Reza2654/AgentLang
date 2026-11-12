@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.9.1";
+    public const string Version = "0.9.2";
 
     public static async Task<int> Main(string[] args)
     {
@@ -432,19 +432,27 @@ public static class Program
         if (isHttp)
         {
             int port = 8080;
+            string? startupScript = null;
             for (int i = 1; i < args.Length; i++)
             {
                 if (args[i].Equals("--http", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[i + 1], out int p))
                 {
                     port = p;
+                    i++;
                 }
                 else if (args[i].Equals("--port", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[i + 1], out int p2))
                 {
                     port = p2;
+                    i++;
+                }
+                else if (!args[i].StartsWith("-", StringComparison.Ordinal) && File.Exists(args[i]))
+                {
+                    startupScript = args[i];
                 }
             }
 
             var vm = new AgentVirtualMachine();
+            vm.Runtime.EntityStore.StorageDirectory = Path.Combine(Environment.CurrentDirectory, ".agent", "data");
             using var server = new AgentHttpServer(port, vm);
             using var cts = new CancellationTokenSource();
             Console.CancelKeyPress += (s, e) =>
@@ -453,11 +461,19 @@ public static class Program
                 cts.Cancel();
             };
 
+            if (!string.IsNullOrEmpty(startupScript))
+            {
+                string code = await File.ReadAllTextAsync(startupScript, cts.Token);
+                await server.LoadScriptAsync(code, startupScript, cts.Token);
+            }
+
             await server.StartAsync(cts.Token);
 
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine($"AgentLang Microservice Server running at: http://localhost:{port}/");
             Console.WriteLine($"  - Playground:    http://localhost:{port}/playground");
+            Console.WriteLine($"  - OpenAPI 3.0:   GET  http://localhost:{port}/openapi.json");
+            Console.WriteLine($"  - Entities API:  GET  http://localhost:{port}/api/v1/entities");
             Console.WriteLine($"  - Execute API:   POST http://localhost:{port}/api/v1/run");
             Console.WriteLine($"  - Stream API:    POST http://localhost:{port}/api/v1/stream");
             Console.WriteLine($"  - Resume API:    POST http://localhost:{port}/api/v1/resume");

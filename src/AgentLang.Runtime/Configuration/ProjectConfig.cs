@@ -63,13 +63,68 @@ public sealed class ProjectConfig
     public static ProjectConfig LoadFromFile(string path)
     {
         string json = File.ReadAllText(path);
-        var options = new JsonSerializerOptions
+        var docOptions = new JsonDocumentOptions
         {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
+            CommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true
         };
-        return JsonSerializer.Deserialize<ProjectConfig>(json, options) ?? new ProjectConfig();
+        using var doc = JsonDocument.Parse(json, docOptions);
+        var cfg = new ProjectConfig();
+        if (doc.RootElement.ValueKind != JsonValueKind.Object) return cfg;
+
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            switch (prop.Name.ToLowerInvariant())
+            {
+                case "$schema":
+                    cfg.Schema = prop.Value.GetString();
+                    break;
+                case "name":
+                    cfg.Name = prop.Value.GetString() ?? cfg.Name;
+                    break;
+                case "version":
+                    cfg.Version = prop.Value.GetString() ?? cfg.Version;
+                    break;
+                case "description":
+                    cfg.Description = prop.Value.GetString();
+                    break;
+                case "defaultmodel" or "default_model":
+                    cfg.DefaultModel = prop.Value.GetString();
+                    break;
+                case "budgetlimitusd" or "budget_limit_usd":
+                    if (prop.Value.ValueKind == JsonValueKind.Number)
+                        cfg.BudgetLimitUsd = prop.Value.GetDouble();
+                    break;
+                case "timeout":
+                    cfg.Timeout = prop.Value.GetString();
+                    break;
+                case "env":
+                    if (prop.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var kv in prop.Value.EnumerateObject())
+                            cfg.Env[kv.Name] = kv.Value.ToString();
+                    }
+                    break;
+                case "tools":
+                    if (prop.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in prop.Value.EnumerateArray())
+                        {
+                            string? s = item.GetString();
+                            if (!string.IsNullOrEmpty(s)) cfg.Tools.Add(s);
+                        }
+                    }
+                    break;
+                case "dependencies":
+                    if (prop.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var kv in prop.Value.EnumerateObject())
+                            cfg.Dependencies[kv.Name] = kv.Value.ToString();
+                    }
+                    break;
+            }
+        }
+        return cfg;
     }
 
     public void ApplyEnvironment()
@@ -107,9 +162,31 @@ public sealed class ProjectConfig
 
     public string ToJson()
     {
-        return JsonSerializer.Serialize(this, new JsonSerializerOptions
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
         {
-            WriteIndented = true
-        });
+            w.WriteStartObject();
+            if (Schema != null) w.WriteString("$schema", Schema);
+            w.WriteString("name", Name);
+            w.WriteString("version", Version);
+            if (Description != null) w.WriteString("description", Description);
+            if (DefaultModel != null) w.WriteString("default_model", DefaultModel);
+            if (BudgetLimitUsd.HasValue) w.WriteNumber("budget_limit_usd", BudgetLimitUsd.Value);
+            if (Timeout != null) w.WriteString("timeout", Timeout);
+
+            w.WriteStartObject("env");
+            foreach (var kv in Env) w.WriteString(kv.Key, kv.Value);
+            w.WriteEndObject();
+
+            w.WriteStartArray("tools");
+            foreach (var tool in Tools) w.WriteStringValue(tool);
+            w.WriteEndArray();
+
+            w.WriteStartObject("dependencies");
+            foreach (var dep in Dependencies) w.WriteString(dep.Key, dep.Value);
+            w.WriteEndObject();
+            w.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
     }
 }

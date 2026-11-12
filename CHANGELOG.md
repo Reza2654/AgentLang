@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.2] — 2026-11-12
+
+### Added
+- **Schema-Backed Persistent Entity Store & Data Module (`data.*` / `db.*`)**: Added `SchemaEntityStore` enforcing schema field types, required constraints, numeric `min`/`max`, and `regex` patterns (`[AL-DATA-001]`) with JSON persistence under `.agent/data/{Schema}.json` and optional RBAC enforcement via `SecurityEngine`.
+- **Auto-Generated REST CRUD API & Live OpenAPI 3.0.3 Spec**: `AgentHttpServer` now exposes `GET /openapi.json`, `GET /api/v1/entities`, and full CRUD endpoints (`/api/v1/entities/{schema}` and `/{id}`) for every loaded `schema`. CLI `agent serve --http <port> [script.agt]` accepts an optional startup script to serve schemas immediately.
+- **Bytecode VM Parity (`.agtc`)**: Upgraded `BytecodeCompiler`, `AgentOpCode`, and `BytecodeExecutor` with `DefineAgent`, `GetMember`, `CallFunc`, `MakeList`, `MakeMap`, `while`/`for` loops, full comparison/logical/unary operators, and real `AgentReActEngine.SolveAsync` execution (replacing the previous agent placeholder).
+- **Zero-Reflection Trim-Safe JSON Across Core Paths**: Converted `AgentHttpServer`, `ProjectConfig`, `ProjectManager`, `RestModelProviders` (OpenAI, Gemini, Anthropic, DeepSeek), and `OllamaModelProvider` to `Utf8JsonWriter`/`JsonDocument`, verified with `PublishTrimmed=true` smoke tests.
+- **Test Suite Expansion**: Added `V092Tests.cs` bringing the solution to **246 passing tests (228 unit + 18 integration, 100% pass rate)**.
+
 ## [0.9.1] — 2026-11-12
 
 ### Added & Improved
