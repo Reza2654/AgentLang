@@ -246,15 +246,27 @@ public class V068Tests
     [Fact]
     public void ResourceAccessPolicy_PathAndDomainEnforcement()
     {
+        string safeRoot = Path.Combine(Path.GetTempPath(), "agentlang_safe", "workspace");
+        string allowedFile = Path.Combine(safeRoot, "data.json");
+        string outsideFile = Path.Combine(Path.GetTempPath(), "other", "system.conf");
+        string traversalFile = Path.Combine(safeRoot, "..", "..", "secret.txt");
+        string prefixBypassFile = Path.Combine(Path.GetTempPath(), "agentlang_safe", "workspace_evil", "secret.txt");
+
         var policy = new ResourceAccessPolicy();
-        policy.AllowedPathRoots.Add(@"C:\safe\workspace");
+        policy.AllowedPathRoots.Add(safeRoot);
         policy.AllowedDomains.Add("*.github.com");
         policy.AllowedDomains.Add("api.weather.com");
 
         // Paths
-        Assert.True(policy.IsPathAllowed(@"C:\safe\workspace\data.json", @"C:\safe\workspace"));
-        Assert.False(policy.IsPathAllowed(@"C:\Windows\System32\cmd.exe", @"C:\safe\workspace"));
-        Assert.False(policy.IsPathAllowed(@"C:\safe\workspace\..\..\secret.txt", @"C:\safe\workspace"));
+        Assert.True(policy.IsPathAllowed(allowedFile, safeRoot));
+        Assert.False(policy.IsPathAllowed(outsideFile, safeRoot));
+        Assert.False(policy.IsPathAllowed(traversalFile, safeRoot));
+        Assert.False(policy.IsPathAllowed(prefixBypassFile, safeRoot));
+
+        // Windows-style backslashes must still enforce traversal boundaries on Unix runners
+        var winStylePolicy = new ResourceAccessPolicy();
+        Assert.True(winStylePolicy.IsPathAllowed(@"C:\safe\workspace\data.json", @"C:\safe\workspace"));
+        Assert.False(winStylePolicy.IsPathAllowed(@"C:\safe\workspace\..\..\secret.txt", @"C:\safe\workspace"));
 
         // Domains
         Assert.True(policy.IsDomainAllowed("api.github.com"));

@@ -146,20 +146,34 @@ public sealed class ResourceAccessPolicy
     {
         if (string.IsNullOrWhiteSpace(targetPath)) return false;
 
-        string normalizedTarget = Path.GetFullPath(targetPath);
+        string normalizedTarget = NormalizePath(targetPath);
         var roots = AllowedPathRoots.Count > 0
-            ? AllowedPathRoots.Select(Path.GetFullPath).ToList()
-            : [Path.GetFullPath(defaultRoot)];
+            ? AllowedPathRoots.Select(NormalizePath).ToList()
+            : [NormalizePath(defaultRoot)];
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
         foreach (var root in roots)
         {
-            if (normalizedTarget.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            string trimmedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (normalizedTarget.Equals(trimmedRoot, comparison) ||
+                normalizedTarget.StartsWith(trimmedRoot + Path.DirectorySeparatorChar, comparison))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static string NormalizePath(string path)
+    {
+        string unified = path
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
+        return Path.GetFullPath(unified);
     }
 
     public bool IsDomainAllowed(string hostOrUrl)
