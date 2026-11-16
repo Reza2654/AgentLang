@@ -153,7 +153,7 @@ public sealed class AgentLspServer
             serverInfo = new
             {
                 name = "agentlang-lsp",
-                version = "0.9.2"
+                version = "1.0.0-beta.1"
             }
         };
 
@@ -617,49 +617,8 @@ public sealed class AgentLspServer
         await _transport.SendMessageAsync(JsonSerializer.Serialize(response), ct);
     }
 
-    public static string FormatCode(string code)
-    {
-        var lines = code.Replace("\r\n", "\n").Split('\n');
-        var sb = new System.Text.StringBuilder();
-        int indent = 0;
-        const string indentStr = "    ";
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string line = lines[i].Trim();
-            if (string.IsNullOrEmpty(line))
-            {
-                sb.AppendLine();
-                continue;
-            }
-
-            bool startsWithClose = line.StartsWith('}') || line.StartsWith(']');
-            if (startsWithClose)
-            {
-                indent = Math.Max(0, indent - 1);
-            }
-
-            for (int k = 0; k < indent; k++)
-            {
-                sb.Append(indentStr);
-            }
-            sb.AppendLine(line);
-
-            int openCount = line.Count(c => c == '{' || c == '[');
-            int closeCount = line.Count(c => c == '}' || c == ']');
-
-            if (!startsWithClose && openCount > closeCount)
-            {
-                indent += (openCount - closeCount);
-            }
-            else if (startsWithClose && openCount > (closeCount - 1))
-            {
-                indent += openCount - (closeCount - 1);
-            }
-        }
-
-        return sb.ToString().TrimEnd() + Environment.NewLine;
-    }
+    public static string FormatCode(string code) =>
+        AgentLang.VM.Formatting.AgentCodeFormatter.Format(code);
 
     private async Task HandleCodeActionAsync(object? id, JsonElement root, CancellationToken ct)
     {

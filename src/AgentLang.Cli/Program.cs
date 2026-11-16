@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "0.9.2";
+    public const string Version = "1.0.0-beta.1";
 
     public static async Task<int> Main(string[] args)
     {
@@ -47,7 +47,7 @@ public static class Program
                 "repl" => await ReplCommand.RunAsync(),
                 "chat" => await ChatCommand.RunAsync(args),
                 "check" => CheckCommand.Run(args),
-                "format" => FormatCommand.Run(args),
+                "format" or "fmt" => FormatCommand.Run(args),
                 "test" => await TestCommand.RunAsync(args),
                 "doctor" => await DoctorCommand.RunAsync(),
                 "init" => HandleInit(args),
@@ -64,6 +64,7 @@ public static class Program
                 "serve" => await HandleServeAsync(args),
                 "checkpoint" => await HandleCheckpointAsync(args),
                 "compile" => await HandleCompileAsync(args),
+                "disasm" or "disassemble" => await HandleDisasmAsync(args),
                 "eval" => await HandleEvalAsync(args),
                 "plan" => await HandlePlanAsync(args),
                 "lsp" => await HandleLspAsync(args),
@@ -93,7 +94,7 @@ public static class Program
         Console.WriteLine("  chat <file> [agent]   Interactive live terminal chat with an autonomous agent");
         Console.WriteLine("  run <file> [flags]    Execute an AgentLang program (.agt / .agent)");
         Console.WriteLine("  check [target]        Fast syntax and semantic static checker");
-        Console.WriteLine("  format [target] [-w]  Format AgentLang source code");
+        Console.WriteLine("  format, fmt [target]  Format AgentLang source code");
         Console.WriteLine("  test [target]         Run AgentLang test suites");
         Console.WriteLine("  build <file> [flags]  Parse, validate, and optionally compile/transpile an AgentLang program");
         Console.WriteLine("  transpile <file>      Transpile AgentLang (.agt) to Python or TypeScript");
@@ -111,15 +112,19 @@ public static class Program
         Console.WriteLine("  watch <file> [--run]  Watch a script for changes and perform hot-reload verification/execution");
         Console.WriteLine("  checkpoint [cmd]      Inspect or list resumable workflow execution checkpoints");
         Console.WriteLine("  compile <file> [-o]   Compile an AgentLang script into an optimized .agtc bytecode binary");
+        Console.WriteLine("  disasm <file>         Disassemble and inspect a .agtc bytecode module or .agt file");
         Console.WriteLine("  eval <file> [options] Evaluate an agent on a benchmark dataset and generate a scorecard");
         Console.WriteLine("  plan <goal> [flags]   Generate or execute a hierarchical multi-step task plan DAG");
         Console.WriteLine("  --version, -v         Display AgentLang version");
         Console.WriteLine("  --help, -h            Show this help documentation\n");
         Console.WriteLine("Flags for 'run':");
         Console.WriteLine("  --yes, -y             Automatically approve operations requiring human approval");
+        Console.WriteLine("  --profile, -p         Display detailed VM bytecode instruction execution metrics and profile");
         Console.WriteLine("  --trace, -t           Record and print distributed OpenTelemetry execution trace tree");
         Console.WriteLine("  --stream, -s          Stream execution events and tokens in real time (SSE compatible)");
         Console.WriteLine("  --dlp                 Mask or redact sensitive API keys, tokens, and credentials (DLP)");
+        Console.WriteLine("Flags for 'compile':");
+        Console.WriteLine("  --disasm, -d          Print human-readable bytecode disassembly after compiling");
         Console.WriteLine("Flags for 'format':");
         Console.WriteLine("  --write, -w           Write formatted output directly to files");
         Console.WriteLine("  --check, -c           Check if files are formatted without modifying them");
@@ -189,6 +194,7 @@ public static class Program
         bool enableTrace = args.Any(a => a is "--trace" or "-t");
         bool enableStream = args.Any(a => a is "--stream" or "-s");
         bool enableDlp = args.Any(a => a is "--dlp");
+        bool enableProfile = args.Any(a => a is "--profile" or "-p");
 
         if (!File.Exists(filePath))
         {
@@ -209,7 +215,12 @@ public static class Program
         {
             var module = AgentBytecodeModule.LoadFromFile(filePath);
             var vm = new AgentVirtualMachine();
-            var result = await vm.ExecuteBytecodeAsync(module);
+            var metrics = enableProfile ? new BytecodeExecutionMetrics() : null;
+            var result = await vm.ExecuteBytecodeAsync(module, metrics);
+            if (enableProfile && metrics != null)
+            {
+                PrintExecutionMetrics(metrics);
+            }
             if (enableTrace)
             {
                 Console.WriteLine();
@@ -300,6 +311,17 @@ public static class Program
 
             await vm.StreamExecuteAsync(source, channel, filePath);
             await streamTask;
+            return 0;
+        }
+
+        if (enableProfile)
+        {
+            var compiler = new BytecodeCompiler();
+            var module = compiler.Compile(program, Path.GetFileNameWithoutExtension(filePath));
+            var vm = new AgentVirtualMachine(runtime: runtime);
+            var metrics = new BytecodeExecutionMetrics();
+            await vm.ExecuteBytecodeAsync(module, metrics);
+            PrintExecutionMetrics(metrics);
             return 0;
         }
 
@@ -902,7 +924,77 @@ public static class Program
         Console.WriteLine($"  - Constants: {module.ConstantPool.Count}");
         Console.WriteLine($"  - Symbols: {module.SymbolTable.Count}");
         Console.ResetColor();
+
+        bool disasm = args.Any(a => a is "--disasm" or "-d");
+        if (disasm)
+        {
+            Console.WriteLine();
+            Console.WriteLine(module.Disassemble());
+        }
+
         return 0;
+    }
+
+    private static async Task<int> HandleDisasmAsync(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Error: Missing file path. Usage: agent disasm <file.agtc | file.agt>");
+            Console.ResetColor();
+            return 1;
+        }
+
+        string filePath = args[1];
+        if (!File.Exists(filePath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error: File not found: '{filePath}'");
+            Console.ResetColor();
+            return 1;
+        }
+
+        AgentBytecodeModule module;
+        if (filePath.EndsWith(".agtc", StringComparison.OrdinalIgnoreCase))
+        {
+            module = AgentBytecodeModule.LoadFromFile(filePath);
+        }
+        else
+        {
+            string source = await File.ReadAllTextAsync(filePath);
+            var sourceText = new SourceText(source, filePath);
+            var parser = new Parser.Parser(sourceText);
+            var program = parser.ParseProgram();
+            if (parser.Diagnostics.HasErrors)
+            {
+                PrintDiagnostics(sourceText, parser.Diagnostics);
+                return 1;
+            }
+            var compiler = new BytecodeCompiler();
+            module = compiler.Compile(program, Path.GetFileNameWithoutExtension(filePath));
+        }
+
+        Console.WriteLine(module.Disassemble());
+        return 0;
+    }
+
+    private static void PrintExecutionMetrics(BytecodeExecutionMetrics metrics)
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("--- Bytecode VM Execution Profile ---");
+        Console.ResetColor();
+        Console.WriteLine($"  Instructions Executed : {metrics.InstructionsExecuted}");
+        Console.WriteLine($"  Elapsed Time          : {metrics.ElapsedMilliseconds} ms");
+        Console.WriteLine($"  Peak Stack Depth      : {metrics.PeakStackDepth}");
+        if (metrics.OpCodeCounts.Count > 0)
+        {
+            Console.WriteLine("  Top Executed OpCodes:");
+            foreach (var kvp in metrics.OpCodeCounts.OrderByDescending(p => p.Value).Take(6))
+            {
+                Console.WriteLine($"    - {kvp.Key,-16}: {kvp.Value} times");
+            }
+        }
     }
 
     private static async Task<int> HandleEvalAsync(string[] args)

@@ -211,4 +211,24 @@ public sealed class AgentBytecodeModule
 
     public static AgentBytecodeModule LoadFromFile(string filePath) =>
         FromBytes(File.ReadAllBytes(filePath));
+
+    public string Disassemble() =>
+        BytecodeDisassembler.Disassemble(this);
+}
+
+/// <summary>
+/// Execution profiling statistics captured during bytecode virtual machine evaluation.
+/// </summary>
+public sealed class BytecodeExecutionMetrics
+{
+    public int InstructionsExecuted { get; set; }
+    public long ElapsedMilliseconds { get; set; }
+    public int PeakStackDepth { get; set; }
+    public Dictionary<AgentOpCode, int> OpCodeCounts { get; } = new();
+
+    public void RecordOpCode(AgentOpCode op)
+    {
+        InstructionsExecuted++;
+        OpCodeCounts[op] = OpCodeCounts.GetValueOrDefault(op) + 1;
+    }
 }

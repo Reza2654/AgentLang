@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-beta.1] — 2026-11-16
+
+### Added & Completed
+- **Bytecode Disassembler & Inspector (`agent disasm` & `compile --disasm`)**: Added `BytecodeDisassembler` for human-readable disassembly of compiled `.agtc` bytecode binaries, rendering the header, Constant Pool (type tags and values), Symbol Table, and full instruction stream with offsets, line numbers, opcodes, operands, and contextual annotations.
+- **Execution Profiling (`agent run --profile`)**: Added `BytecodeExecutionMetrics` to `BytecodeExecutor` and `AgentVirtualMachine` tracking total executed instructions, elapsed runtime milliseconds, peak stack depth, and per-opcode frequency breakdowns.
+- **Unified Canonical Code Formatter (`AgentCodeFormatter`)**: Extracted a centralized formatter under `AgentLang.VM.Formatting.AgentCodeFormatter` shared between the Language Server Protocol (`textDocument/formatting`) and the CLI, adding the `agent fmt` command alias alongside `agent format`.
+- **LSP Protocol Upgrades & Version Alignment**: Synchronized `AgentLspServer` version, capabilities, and document formatting with the canonical formatter.
+- **Test Suite Expansion**: Added `V100Beta1Tests.cs` bringing test coverage to **252 tests (234 unit + 18 integration, 100% pass rate)**.
+
 ## [0.9.2] — 2026-11-12
 
 ### Added

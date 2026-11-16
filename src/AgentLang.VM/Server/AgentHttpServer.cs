@@ -13,6 +13,7 @@ namespace AgentLang.VM.Server;
 
 public sealed class AgentHttpServer : IDisposable
 {
+    public const string ServerVersion = "1.0.0-beta.1";
     private readonly HttpListener _listener = new();
     private readonly AgentVirtualMachine _vm;
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
@@ -229,7 +230,7 @@ public sealed class AgentHttpServer : IDisposable
         {
             w.WriteStartObject();
             w.WriteString("status", "healthy");
-            w.WriteString("version", "0.9.2");
+            w.WriteString("version", ServerVersion);
             w.WriteNumber("uptimeSeconds", (DateTimeOffset.UtcNow - _startTime).TotalSeconds);
             w.WriteNumber("registeredSchemas", _vm.Runtime.EntityStore.GetSchemas().Count);
             w.WriteStartObject("durableExecutions");
@@ -494,7 +495,7 @@ public sealed class AgentHttpServer : IDisposable
             w.WriteString("openapi", "3.0.3");
             w.WriteStartObject("info");
             w.WriteString("title", "AgentLang Auto-Generated Microservice API");
-            w.WriteString("version", "0.9.2");
+            w.WriteString("version", ServerVersion);
             w.WriteEndObject();
 
             w.WriteStartObject("paths");
@@ -909,7 +910,7 @@ public sealed class AgentHttpServer : IDisposable
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AgentLang Playground — v0.9.2</title>
+        <title>AgentLang Playground — v1.0.0-beta.1</title>
         <style>
             :root {
                 --bg: #0d1117;
@@ -944,7 +945,7 @@ public sealed class AgentHttpServer : IDisposable
         <header>
             <div class="logo">
                 ⚡ AgentLang Playground
-                <span class="badge">v0.9.2</span>
+                <span class="badge">v1.0.0-beta.1</span>
             </div>
             <div style="font-size: 0.85rem; color: #8b949e;">
                 Durable Engine & Microservice Gateway Active
@@ -964,7 +965,7 @@ public sealed class AgentHttpServer : IDisposable
     }
 
     main {
-        print("Executing AgentLang v0.9.2 Microservice Server...")
+        print("Executing AgentLang v1.0.0-beta.1 Microservice Server...")
         x = 40
         y = 2
         result = x + y

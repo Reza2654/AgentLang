@@ -24,18 +24,38 @@ public sealed class BytecodeExecutor
         _runtime = runtime ?? new AgentLangRuntime(output: _output);
     }
 
-    public async Task<object?> ExecuteAsync(AgentBytecodeModule module, CancellationToken ct = default)
+    public Task<object?> ExecuteAsync(AgentBytecodeModule module, CancellationToken ct = default) =>
+        ExecuteAsync(module, null, ct);
+
+    public async Task<object?> ExecuteAsync(AgentBytecodeModule module, BytecodeExecutionMetrics? metrics, CancellationToken ct = default)
     {
+        var sw = metrics != null ? System.Diagnostics.Stopwatch.StartNew() : null;
         var stack = new Stack<object?>();
         var vars = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         int ip = 0;
         object? returnValue = null;
+
+        object? Finish(object? val)
+        {
+            if (sw != null && metrics != null)
+            {
+                sw.Stop();
+                metrics.ElapsedMilliseconds = sw.ElapsedMilliseconds;
+            }
+            return val;
+        }
 
         while (ip < module.Instructions.Count)
         {
             ct.ThrowIfCancellationRequested();
             var instr = module.Instructions[ip];
             ip++;
+
+            metrics?.RecordOpCode(instr.OpCode);
+            if (metrics != null && stack.Count > metrics.PeakStackDepth)
+            {
+                metrics.PeakStackDepth = stack.Count;
+            }
 
             switch (instr.OpCode)
             {
@@ -317,14 +337,14 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.Return:
                     returnValue = stack.Count > 0 ? stack.Pop() : null;
-                    return returnValue;
+                    return Finish(returnValue);
 
                 case AgentOpCode.Halt:
-                    return returnValue ?? (stack.Count > 0 ? stack.Peek() : null);
+                    return Finish(returnValue ?? (stack.Count > 0 ? stack.Peek() : null));
             }
         }
 
-        return returnValue ?? (stack.Count > 0 ? stack.Peek() : null);
+        return Finish(returnValue ?? (stack.Count > 0 ? stack.Peek() : null));
     }
 
     private AgentValue BuildAgentValue(string agentName, List<(string Key, object? Value)> config)

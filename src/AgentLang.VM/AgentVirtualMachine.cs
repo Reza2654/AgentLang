@@ -232,7 +232,10 @@ public sealed class AgentVirtualMachine
         }
     }
 
-    public async Task<object?> ExecuteBytecodeAsync(AgentBytecodeModule module, CancellationToken ct = default)
+    public Task<object?> ExecuteBytecodeAsync(AgentBytecodeModule module, CancellationToken ct = default) =>
+        ExecuteBytecodeAsync(module, null, ct);
+
+    public async Task<object?> ExecuteBytecodeAsync(AgentBytecodeModule module, BytecodeExecutionMetrics? metrics, CancellationToken ct = default)
     {
         Status = "Running";
         using var span = Tracer.StartSpan($"vm.bytecode.execute:{module.ModuleName}");
@@ -241,7 +244,7 @@ public sealed class AgentVirtualMachine
 
         try
         {
-            var result = await BytecodeExecutor.ExecuteAsync(module, ct);
+            var result = await BytecodeExecutor.ExecuteAsync(module, metrics, ct);
             Status = "Completed";
             return result;
         }
