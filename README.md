@@ -1,12 +1,12 @@
-# AgentLang — v1.0.0-beta.2
+# AgentLang — v1.0.0-beta.3
 
 > **A Statically-Checked DSL, Compiler, and Stack-Based Bytecode VM for Autonomous AI Agents**  
 > *Built from scratch in C# 14 on .NET 10 with zero external runtime dependencies (Standard BCL only).*
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Language](https://img.shields.io/badge/Language-C%23%2014-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/)
-[![Release](https://img.shields.io/badge/Release-v1.0.0--beta.2-success)](https://github.com/Reza2654/AgentLang/releases)
-[![Tests](https://img.shields.io/badge/Tests-257%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
+[![Release](https://img.shields.io/badge/Release-v1.0.0--beta.3-success)](https://github.com/Reza2654/AgentLang/releases)
+[![Tests](https://img.shields.io/badge/Tests-263%20Passing%20(100%25)-brightgreen)](https://github.com/Reza2654/AgentLang)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > **Note on Naming:** This repository (`Reza2654/AgentLang`) is an independent, MIT-licensed compiler and bytecode VM implemented in C#/.NET. It is unrelated to Fractl's TypeScript/Node.js web application generator (`agentlang-ai/agentlang`).

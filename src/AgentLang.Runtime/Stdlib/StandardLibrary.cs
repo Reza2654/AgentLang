@@ -92,7 +92,12 @@ public static class StandardLibrary
         if (funcName is "json_parse") { result = JsonModule["parse"].Execute(args); return true; }
         if (funcName is "json_stringify") { result = JsonModule["stringify"].Execute(args); return true; }
         if (funcName is "time_now") { result = TimeModule["now"].Execute(args); return true; }
+        if (funcName is "time_iso") { result = TimeModule["iso"].Execute(args); return true; }
+        if (funcName is "time_format") { result = TimeModule["format"].Execute(args); return true; }
         if (funcName is "time_elapsed") { result = TimeModule["elapsed_ms"].Execute(args); return true; }
+        if (funcName is "sleep_ms") { result = TimeModule["sleep_ms"].Execute(args); return true; }
+        if (funcName is "pow" or "math_pow") { result = MathModule["pow"].Execute(args); return true; }
+        if (funcName is "sqrt" or "math_sqrt") { result = MathModule["sqrt"].Execute(args); return true; }
 
         return false;
     }
@@ -276,14 +281,49 @@ public static class StandardLibrary
                 args.Count > 0 ? Math.Floor(Convert.ToDouble(args[0])) : 0),
 
             ["ceil"] = new BuiltinFunctionValue("ceil", args =>
-                args.Count > 0 ? Math.Ceiling(Convert.ToDouble(args[0])) : 0)
+                args.Count > 0 ? Math.Ceiling(Convert.ToDouble(args[0])) : 0),
+
+            ["pow"] = new BuiltinFunctionValue("pow", args =>
+            {
+                double b = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
+                double exp = args.Count > 1 ? Convert.ToDouble(args[1]) : 1;
+                return Math.Pow(b, exp);
+            }),
+
+            ["sqrt"] = new BuiltinFunctionValue("sqrt", args =>
+            {
+                double val = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
+                return Math.Sqrt(Math.Max(0, val));
+            })
         };
 
     public static readonly IReadOnlyDictionary<string, BuiltinFunctionValue> TimeModule =
         new Dictionary<string, BuiltinFunctionValue>(StringComparer.OrdinalIgnoreCase)
         {
             ["now"] = new BuiltinFunctionValue("now", _ => DateTime.UtcNow.ToString("o")),
+            ["iso"] = new BuiltinFunctionValue("iso", _ => DateTime.UtcNow.ToString("o")),
             ["timestamp"] = new BuiltinFunctionValue("timestamp", _ => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
+            ["format"] = new BuiltinFunctionValue("format", args =>
+            {
+                if (args.Count == 0 || args[0] == null) return string.Empty;
+                string fmt = args.Count > 1 ? (args[1]?.ToString() ?? "yyyy-MM-dd HH:mm:ss") : "yyyy-MM-dd HH:mm:ss";
+                DateTime dt = DateTime.UtcNow;
+                string s = args[0]?.ToString() ?? "";
+                if (DateTime.TryParse(s, out var parsedDt))
+                    dt = parsedDt.ToUniversalTime();
+                else if (long.TryParse(s, out var ms))
+                    dt = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+                return dt.ToString(fmt);
+            }),
+            ["sleep_ms"] = new BuiltinFunctionValue("sleep_ms", args =>
+            {
+                int ms = args.Count > 0 && int.TryParse(args[0]?.ToString(), out int val) ? Math.Max(0, val) : 0;
+                if (ms > 0)
+                {
+                    Thread.Sleep(ms);
+                }
+                return ms;
+            }),
             ["elapsed_ms"] = new BuiltinFunctionValue("elapsed_ms", args =>
             {
                 if (args.Count == 0 || args[0] == null) return 0.0;

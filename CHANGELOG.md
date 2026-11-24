@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-beta.3] — 2026-11-24
+
+### Added & Completed
+- **CLI Security Sandbox & Permission Guardrails (`agent run`)**: Added fine-grained capability flags `--allow-net`, `--allow-fs`, `--allow-env`, `--allow-terminal`, `--allow-all`, paired `--deny-*` inverses, and `--strict` / `--sandbox strict` mode. Integrated with `SecurityEngine.CreateSandboxPolicy` and `GlobalPolicy` to provide host-level ambient sandboxing across both source execution and pre-compiled `.agtc` bytecode.
+- **Runtime Environment Access Guardrails**: Integrated `SecurityEngine.AuthorizeAsync` for `@stdlib/env` / `env.*` module accesses and `env_get` / `env_has` invocations, enforcing `--deny-env` and strict sandbox boundaries.
+- **Standard Library Parity & Micro-Helpers**:
+  - `@stdlib/time`: Added `time.format(ts, fmt)` supporting custom date/time formatting, `time.sleep_ms(ms)` for delay/polling intervals, and `time.iso()` (ISO 8601 string alias).
+  - `@stdlib/math`: Added `math.pow(base, exp)` and `math.sqrt(val)`.
+  - Global function aliases: Added `time_format`, `time_iso`, `sleep_ms`, `pow`, `math_pow`, `sqrt`, and `math_sqrt` to `StandardLibrary.TryInvoke`.
+- **Cross-Component Version Alignment**: Synchronized CLI, `AgentHttpServer`, `AgentLspServer`, and `VsCodeExtensionGenerator` to `1.0.0-beta.3`.
+- **Final Beta Verification**: Final beta release before Release Candidate 1 (RC1), locking in existing features with zero breaking changes.
+
 ## [1.0.0-beta.2] — 2026-11-24
 
 ### Added & Completed

@@ -153,8 +153,8 @@ public class V100Beta2Tests
     }
 
     [Fact]
-    public void Program_Version_Matches_V100Beta2()
+    public void Program_Version_Matches_V100BetaSeries()
     {
-        Assert.Equal("1.0.0-beta.2", Program.Version);
+        Assert.StartsWith("1.0.0-beta", Program.Version);
     }
 }

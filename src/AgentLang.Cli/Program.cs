@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "1.0.0-beta.2";
+    public const string Version = "1.0.0-beta.3";
 
     public static async Task<int> Main(string[] args)
     {
@@ -124,6 +124,11 @@ public static class Program
         Console.WriteLine("  --stream, -s          Stream execution events and tokens in real time (SSE compatible)");
         Console.WriteLine("  --dlp                 Mask or redact sensitive API keys, tokens, and credentials (DLP)");
         Console.WriteLine("  --output, -o <file>   Redirect and write execution output directly to a specified file");
+        Console.WriteLine("  --allow-all           Grant full ambient access to all system capabilities");
+        Console.WriteLine("  --allow-net/--deny-net Explicitly permit or forbid network access (HTTP, browser)");
+        Console.WriteLine("  --allow-fs/--deny-fs  Explicitly permit or forbid filesystem access");
+        Console.WriteLine("  --allow-env/--deny-env Explicitly permit or forbid environment variable access");
+        Console.WriteLine("  --strict              Enforce strict sandbox mode where unpermitted capabilities are denied");
         Console.WriteLine("Flags for 'compile':");
         Console.WriteLine("  --disasm, -d          Print human-readable bytecode disassembly after compiling");
         Console.WriteLine("Flags for 'lsp':");
@@ -200,6 +205,21 @@ public static class Program
         bool enableDlp = args.Any(a => a is "--dlp");
         bool enableProfile = args.Any(a => a is "--profile" or "-p");
 
+        bool allowAll = args.Any(a => a is "--allow-all");
+        bool? allowNet = args.Any(a => a is "--allow-net") ? true : (args.Any(a => a is "--deny-net") ? false : null);
+        bool? allowFs = args.Any(a => a is "--allow-fs") ? true : (args.Any(a => a is "--deny-fs") ? false : null);
+        bool? allowEnv = args.Any(a => a is "--allow-env") ? true : (args.Any(a => a is "--deny-env") ? false : null);
+        bool? allowTerminal = args.Any(a => a is "--allow-terminal") ? true : (args.Any(a => a is "--deny-terminal") ? false : null);
+        bool isStrict = args.Any(a => a is "--strict" or "--sandbox-strict") || (args.Contains("--sandbox") && args.Contains("strict"));
+
+        bool hasSandboxFlags = allowAll || isStrict || allowNet.HasValue || allowFs.HasValue || allowEnv.HasValue || allowTerminal.HasValue;
+        PermissionPolicy? sandboxPolicy = hasSandboxFlags
+            ? SecurityEngine.CreateSandboxPolicy(strict: isStrict, allowAll: allowAll, allowNet: allowNet, allowFs: allowFs, allowEnv: allowEnv, allowTerminal: allowTerminal)
+            : null;
+
+        IApprovalProvider approval = autoApprove ? new AutoApprovalProvider(true) : new ConsoleApprovalProvider();
+        var secEngine = new SecurityEngine(approval, sandboxPolicy);
+
         string? outputFile = null;
         int oIdx = Array.IndexOf(args, "-o");
         if (oIdx < 0) oIdx = Array.IndexOf(args, "--output");
@@ -229,7 +249,7 @@ public static class Program
         if (filePath.EndsWith(".agtc", StringComparison.OrdinalIgnoreCase))
         {
             var module = AgentBytecodeModule.LoadFromFile(filePath);
-            var vm = new AgentVirtualMachine(runtime: new AgentLangRuntime(output: effectiveOut));
+            var vm = new AgentVirtualMachine(runtime: new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut));
             var metrics = enableProfile ? new BytecodeExecutionMetrics() : null;
             var result = await vm.ExecuteBytecodeAsync(module, metrics);
             if (enableProfile && metrics != null)
@@ -277,8 +297,6 @@ public static class Program
         }
 
         // 3. Runtime execution
-        IApprovalProvider approval = autoApprove ? new AutoApprovalProvider(true) : new ConsoleApprovalProvider();
-        var secEngine = new SecurityEngine(approval);
         var runtime = new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut);
 
         if (enableStream)

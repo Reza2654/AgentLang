@@ -2371,6 +2371,10 @@ public sealed class AgentLangRuntime
             {
                 stdArgs.Add(await EvaluateExpressionAsync(arg, scope, ct));
             }
+            if (calleeId.Name.StartsWith("env_", StringComparison.OrdinalIgnoreCase))
+            {
+                await _securityEngine.AuthorizeAsync("runtime", null, "env.read", $"Access environment variable via {calleeId.Name}", ct);
+            }
             if (StandardLibrary.TryInvoke(calleeId.Name, null, stdArgs, out var stdFuncResult))
             {
                 return stdFuncResult;
@@ -2390,6 +2394,11 @@ public sealed class AgentLangRuntime
                 targetModId.Name.Equals("db", StringComparison.OrdinalIgnoreCase))
             {
                 return await InvokeDataModuleAsync(stdMember.MemberName, stdModArgs, ct);
+            }
+            if (targetModId.Name.Equals("env", StringComparison.OrdinalIgnoreCase) ||
+                targetModId.Name.Equals("@stdlib/env", StringComparison.OrdinalIgnoreCase))
+            {
+                await _securityEngine.AuthorizeAsync("runtime", null, $"env.{stdMember.MemberName}", $"Access environment variable via {stdMember.MemberName}", ct);
             }
             if (StandardLibrary.TryInvoke(targetModId.Name, stdMember.MemberName, stdModArgs, out var stdModResult))
             {
