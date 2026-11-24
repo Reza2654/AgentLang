@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-rc.1] — 2026-11-24
+
+### Fixed & Hardened (Zero New Features — Release Candidate 1)
+- **Bytecode Security Sandboxing Parity**: Fixed missing `SecurityEngine.AuthorizeAsync` check for `env.*` and `env_*` inside `BytecodeExecutor`, ensuring pre-compiled `.agtc` bytecode enforces ambient sandbox flags (`--deny-env`, `--strict`) identically to AST interpretation.
+- **HTTP Server CORS Methods**: Added `PUT` and `DELETE` to `Access-Control-Allow-Methods` in `AgentHttpServer`, enabling full cross-origin REST CRUD integration for browser web apps.
+- **Bytecode Optimizer Control Flow Safety**: Hardened `BytecodeOptimizer` to detect all `Jump*` targets and prevent constant folding across jump boundaries, plus added constant pool index bounds checks.
+- **Time Module Resilience**: Hardened `time.format` to accept `double`, `int`, and `long` timestamps with invariant culture formatting and `FormatException` fallback. Clamped `time.sleep_ms` (`0` to `300,000` ms).
+- **CLI Sandbox Flag Precedence**: Fixed flag evaluation in `agent run` so that deny flags (`--deny-*`) take precedence over allow flags, and supported `--sandbox=strict` and `--sandbox:strict` syntax.
+- **Security Engine Input Validation**: Guarded against null or empty capability strings in `PermissionPolicy.Evaluate` and `SecurityEngine.AuthorizeAsync`.
+- **Test Suite Expansion**: Added `V100RC1Tests.cs` bringing test coverage to **268 passing tests (250 unit + 18 integration, 100% pass rate)**.
+
 ## [1.0.0-beta.3] — 2026-11-24
 
 ### Added & Completed

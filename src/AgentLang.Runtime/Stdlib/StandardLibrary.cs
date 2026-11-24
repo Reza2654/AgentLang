@@ -306,18 +306,51 @@ public static class StandardLibrary
             ["format"] = new BuiltinFunctionValue("format", args =>
             {
                 if (args.Count == 0 || args[0] == null) return string.Empty;
-                string fmt = args.Count > 1 ? (args[1]?.ToString() ?? "yyyy-MM-dd HH:mm:ss") : "yyyy-MM-dd HH:mm:ss";
+                string fmt = args.Count > 1 && !string.IsNullOrWhiteSpace(args[1]?.ToString())
+                    ? args[1]!.ToString()!
+                    : "yyyy-MM-dd HH:mm:ss";
+
                 DateTime dt = DateTime.UtcNow;
-                string s = args[0]?.ToString() ?? "";
-                if (DateTime.TryParse(s, out var parsedDt))
-                    dt = parsedDt.ToUniversalTime();
-                else if (long.TryParse(s, out var ms))
-                    dt = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
-                return dt.ToString(fmt);
+                if (args[0] is long l)
+                {
+                    dt = DateTimeOffset.FromUnixTimeMilliseconds(l).UtcDateTime;
+                }
+                else if (args[0] is int i)
+                {
+                    dt = DateTimeOffset.FromUnixTimeMilliseconds(i).UtcDateTime;
+                }
+                else if (args[0] is double d && !double.IsNaN(d) && !double.IsInfinity(d))
+                {
+                    dt = DateTimeOffset.FromUnixTimeMilliseconds((long)d).UtcDateTime;
+                }
+                else
+                {
+                    string s = args[0]?.ToString() ?? "";
+                    if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsedDt) ||
+                        DateTime.TryParse(s, out parsedDt))
+                    {
+                        dt = parsedDt.ToUniversalTime();
+                    }
+                    else if (long.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ms))
+                    {
+                        dt = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+                    }
+                }
+
+                try
+                {
+                    return dt.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (FormatException)
+                {
+                    return dt.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                }
             }),
             ["sleep_ms"] = new BuiltinFunctionValue("sleep_ms", args =>
             {
-                int ms = args.Count > 0 && int.TryParse(args[0]?.ToString(), out int val) ? Math.Max(0, val) : 0;
+                int ms = args.Count > 0 && int.TryParse(args[0]?.ToString(), out int val)
+                    ? Math.Clamp(val, 0, 300_000)
+                    : 0;
                 if (ms > 0)
                 {
                     Thread.Sleep(ms);

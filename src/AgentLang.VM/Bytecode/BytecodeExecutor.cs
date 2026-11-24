@@ -498,6 +498,12 @@ public sealed class BytecodeExecutor
                 return await _runtime.InvokeDataModuleAsync(member, args, ct);
             }
 
+            if (mod.Equals("env", StringComparison.OrdinalIgnoreCase) ||
+                mod.Equals("@stdlib/env", StringComparison.OrdinalIgnoreCase))
+            {
+                await _runtime.SecurityEngine.AuthorizeAsync(_runtime.CurrentAgent?.Name ?? "bytecode", null, $"env.{member}", $"Access environment variable via {member}", ct);
+            }
+
             if (StandardLibrary.TryInvoke(mod, member, args, out var modRes))
                 return modRes;
 
@@ -518,6 +524,11 @@ public sealed class BytecodeExecutor
         }
         else
         {
+            if (funcName.StartsWith("env_", StringComparison.OrdinalIgnoreCase))
+            {
+                await _runtime.SecurityEngine.AuthorizeAsync(_runtime.CurrentAgent?.Name ?? "bytecode", null, "env.read", $"Access environment variable via {funcName}", ct);
+            }
+
             if (StandardLibrary.TryInvoke(funcName, null, args, out var stdRes))
                 return stdRes;
 

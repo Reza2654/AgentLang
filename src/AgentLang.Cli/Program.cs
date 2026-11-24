@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "1.0.0-beta.3";
+    public const string Version = "1.0.0-rc.1";
 
     public static async Task<int> Main(string[] args)
     {
@@ -206,11 +206,12 @@ public static class Program
         bool enableProfile = args.Any(a => a is "--profile" or "-p");
 
         bool allowAll = args.Any(a => a is "--allow-all");
-        bool? allowNet = args.Any(a => a is "--allow-net") ? true : (args.Any(a => a is "--deny-net") ? false : null);
-        bool? allowFs = args.Any(a => a is "--allow-fs") ? true : (args.Any(a => a is "--deny-fs") ? false : null);
-        bool? allowEnv = args.Any(a => a is "--allow-env") ? true : (args.Any(a => a is "--deny-env") ? false : null);
-        bool? allowTerminal = args.Any(a => a is "--allow-terminal") ? true : (args.Any(a => a is "--deny-terminal") ? false : null);
-        bool isStrict = args.Any(a => a is "--strict" or "--sandbox-strict") || (args.Contains("--sandbox") && args.Contains("strict"));
+        bool? allowNet = args.Any(a => a is "--deny-net") ? false : (args.Any(a => a is "--allow-net") ? true : null);
+        bool? allowFs = args.Any(a => a is "--deny-fs") ? false : (args.Any(a => a is "--allow-fs") ? true : null);
+        bool? allowEnv = args.Any(a => a is "--deny-env") ? false : (args.Any(a => a is "--allow-env") ? true : null);
+        bool? allowTerminal = args.Any(a => a is "--deny-terminal") ? false : (args.Any(a => a is "--allow-terminal") ? true : null);
+        bool isStrict = args.Any(a => a is "--strict" or "--sandbox-strict" or "--sandbox=strict" or "--sandbox:strict") ||
+                        (args.Contains("--sandbox") && args.Contains("strict"));
 
         bool hasSandboxFlags = allowAll || isStrict || allowNet.HasValue || allowFs.HasValue || allowEnv.HasValue || allowTerminal.HasValue;
         PermissionPolicy? sandboxPolicy = hasSandboxFlags

@@ -19,14 +19,31 @@ public static class BytecodeOptimizer
             changed = false;
             passes++;
 
+            // Collect all current jump targets to prevent folding across control flow jump boundaries
+            var jumpTargets = new HashSet<int>();
+            foreach (var inst in module.Instructions)
+            {
+                if (inst.OpCode is AgentOpCode.Jump or AgentOpCode.JumpIfTrue or AgentOpCode.JumpIfFalse)
+                {
+                    jumpTargets.Add(inst.Operand);
+                }
+            }
+
             // Pass 1: Constant folding
             for (int i = 0; i < module.Instructions.Count - 2; i++)
             {
+                if (jumpTargets.Contains(i + 1) || jumpTargets.Contains(i + 2))
+                {
+                    continue;
+                }
+
                 var inst1 = module.Instructions[i];
                 var inst2 = module.Instructions[i + 1];
                 var inst3 = module.Instructions[i + 2];
 
-                if (inst1.OpCode == AgentOpCode.PushConst && inst2.OpCode == AgentOpCode.PushConst)
+                if (inst1.OpCode == AgentOpCode.PushConst && inst2.OpCode == AgentOpCode.PushConst &&
+                    inst1.Operand >= 0 && inst1.Operand < module.ConstantPool.Count &&
+                    inst2.Operand >= 0 && inst2.Operand < module.ConstantPool.Count)
                 {
                     object? val1 = module.ConstantPool[inst1.Operand];
                     object? val2 = module.ConstantPool[inst2.Operand];
@@ -46,10 +63,16 @@ public static class BytecodeOptimizer
             // Pass 2: Unary constant folding
             for (int i = 0; i < module.Instructions.Count - 1; i++)
             {
+                if (jumpTargets.Contains(i + 1))
+                {
+                    continue;
+                }
+
                 var inst1 = module.Instructions[i];
                 var inst2 = module.Instructions[i + 1];
 
-                if (inst1.OpCode == AgentOpCode.PushConst)
+                if (inst1.OpCode == AgentOpCode.PushConst &&
+                    inst1.Operand >= 0 && inst1.Operand < module.ConstantPool.Count)
                 {
                     object? val = module.ConstantPool[inst1.Operand];
                     if (TryFoldUnary(val, inst2.OpCode, out object? foldedResult))

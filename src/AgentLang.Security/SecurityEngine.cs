@@ -84,8 +84,11 @@ public sealed class PermissionPolicy
         _rules.Add((action, pattern.Trim().ToLowerInvariant()));
     }
 
-    public PermissionAction Evaluate(string capability)
+    public PermissionAction Evaluate(string? capability)
     {
+        if (string.IsNullOrWhiteSpace(capability))
+            return DefaultAction;
+
         string target = capability.Trim().ToLowerInvariant();
 
         // 1. Look for exact match first
@@ -182,6 +185,8 @@ public sealed class SecurityEngine
 
     public async Task AuthorizeAsync(string agentName, string? policyName, string capability, string details, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(capability)) return;
+
         // 1. If GlobalPolicy (ambient sandbox) is defined, evaluate it first
         if (GlobalPolicy != null)
         {

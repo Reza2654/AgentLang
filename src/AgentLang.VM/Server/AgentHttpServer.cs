@@ -13,7 +13,7 @@ namespace AgentLang.VM.Server;
 
 public sealed class AgentHttpServer : IDisposable
 {
-    public const string ServerVersion = "1.0.0-beta.3";
+    public const string ServerVersion = "1.0.0-rc.1";
     private readonly HttpListener _listener = new();
     private readonly AgentVirtualMachine _vm;
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
@@ -101,7 +101,7 @@ public sealed class AgentHttpServer : IDisposable
 
         // CORS headers
         res.Headers.Add("Access-Control-Allow-Origin", "*");
-        res.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
         res.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
         if (req.HttpMethod.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
