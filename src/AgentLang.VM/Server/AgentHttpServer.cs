@@ -13,7 +13,7 @@ namespace AgentLang.VM.Server;
 
 public sealed class AgentHttpServer : IDisposable
 {
-    public const string ServerVersion = "1.0.0-beta.1";
+    public const string ServerVersion = "1.0.0-beta.2";
     private readonly HttpListener _listener = new();
     private readonly AgentVirtualMachine _vm;
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
@@ -910,7 +910,7 @@ public sealed class AgentHttpServer : IDisposable
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AgentLang Playground — v1.0.0-beta.1</title>
+        <title>AgentLang Playground — v1.0.0-beta.2</title>
         <style>
             :root {
                 --bg: #0d1117;
@@ -945,7 +945,7 @@ public sealed class AgentHttpServer : IDisposable
         <header>
             <div class="logo">
                 ⚡ AgentLang Playground
-                <span class="badge">v1.0.0-beta.1</span>
+                <span class="badge">v1.0.0-beta.2</span>
             </div>
             <div style="font-size: 0.85rem; color: #8b949e;">
                 Durable Engine & Microservice Gateway Active
@@ -965,7 +965,7 @@ public sealed class AgentHttpServer : IDisposable
     }
 
     main {
-        print("Executing AgentLang v1.0.0-beta.1 Microservice Server...")
+        print("Executing AgentLang v1.0.0-beta.2 Microservice Server...")
         x = 40
         y = 2
         result = x + y

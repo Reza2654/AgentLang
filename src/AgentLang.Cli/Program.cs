@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "1.0.0-beta.1";
+    public const string Version = "1.0.0-beta.2";
 
     public static async Task<int> Main(string[] args)
     {
@@ -123,8 +123,12 @@ public static class Program
         Console.WriteLine("  --trace, -t           Record and print distributed OpenTelemetry execution trace tree");
         Console.WriteLine("  --stream, -s          Stream execution events and tokens in real time (SSE compatible)");
         Console.WriteLine("  --dlp                 Mask or redact sensitive API keys, tokens, and credentials (DLP)");
+        Console.WriteLine("  --output, -o <file>   Redirect and write execution output directly to a specified file");
         Console.WriteLine("Flags for 'compile':");
         Console.WriteLine("  --disasm, -d          Print human-readable bytecode disassembly after compiling");
+        Console.WriteLine("Flags for 'lsp':");
+        Console.WriteLine("  --vscode [dir]        Scaffold official VS Code extension with syntax highlighting");
+        Console.WriteLine("  --grammar             Export TextMate JSON grammar definition to stdout");
         Console.WriteLine("Flags for 'format':");
         Console.WriteLine("  --write, -w           Write formatted output directly to files");
         Console.WriteLine("  --check, -c           Check if files are formatted without modifying them");
@@ -196,6 +200,17 @@ public static class Program
         bool enableDlp = args.Any(a => a is "--dlp");
         bool enableProfile = args.Any(a => a is "--profile" or "-p");
 
+        string? outputFile = null;
+        int oIdx = Array.IndexOf(args, "-o");
+        if (oIdx < 0) oIdx = Array.IndexOf(args, "--output");
+        if (oIdx >= 0 && oIdx + 1 < args.Length)
+        {
+            outputFile = args[oIdx + 1];
+        }
+
+        using var capturedOutput = outputFile != null ? new StringWriter() : null;
+        TextWriter effectiveOut = capturedOutput != null ? new TeeTextWriter(Console.Out, capturedOutput) : Console.Out;
+
         if (!File.Exists(filePath))
         {
             Console.ForegroundColor = ConsoleColor.Red;
@@ -214,7 +229,7 @@ public static class Program
         if (filePath.EndsWith(".agtc", StringComparison.OrdinalIgnoreCase))
         {
             var module = AgentBytecodeModule.LoadFromFile(filePath);
-            var vm = new AgentVirtualMachine();
+            var vm = new AgentVirtualMachine(runtime: new AgentLangRuntime(output: effectiveOut));
             var metrics = enableProfile ? new BytecodeExecutionMetrics() : null;
             var result = await vm.ExecuteBytecodeAsync(module, metrics);
             if (enableProfile && metrics != null)
@@ -225,6 +240,10 @@ public static class Program
             {
                 Console.WriteLine();
                 await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+            }
+            if (capturedOutput != null && outputFile != null)
+            {
+                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
             }
             return 0;
         }
@@ -260,7 +279,7 @@ public static class Program
         // 3. Runtime execution
         IApprovalProvider approval = autoApprove ? new AutoApprovalProvider(true) : new ConsoleApprovalProvider();
         var secEngine = new SecurityEngine(approval);
-        var runtime = new AgentLangRuntime(securityEngine: secEngine);
+        var runtime = new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut);
 
         if (enableStream)
         {
@@ -311,6 +330,10 @@ public static class Program
 
             await vm.StreamExecuteAsync(source, channel, filePath);
             await streamTask;
+            if (capturedOutput != null && outputFile != null)
+            {
+                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
+            }
             return 0;
         }
 
@@ -322,6 +345,10 @@ public static class Program
             var metrics = new BytecodeExecutionMetrics();
             await vm.ExecuteBytecodeAsync(module, metrics);
             PrintExecutionMetrics(metrics);
+            if (capturedOutput != null && outputFile != null)
+            {
+                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
+            }
             return 0;
         }
 
@@ -337,6 +364,11 @@ public static class Program
         else
         {
             await runtime.ExecuteProgramAsync(program);
+        }
+
+        if (capturedOutput != null && outputFile != null)
+        {
+            await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
         }
         return 0;
     }
@@ -539,8 +571,33 @@ public static class Program
         return 1;
     }
 
-    private static async Task<int> HandleLspAsync(string[] _)
+    private static async Task<int> HandleLspAsync(string[] args)
     {
+        if (args.Any(a => a is "--grammar" or "-g"))
+        {
+            Console.WriteLine(VsCodeExtensionGenerator.GenerateTextMateGrammarJson());
+            return 0;
+        }
+
+        int vscodeIdx = Array.IndexOf(args, "--vscode");
+        if (vscodeIdx >= 0)
+        {
+            string outDir = vscodeIdx + 1 < args.Length && !args[vscodeIdx + 1].StartsWith('-')
+                ? args[vscodeIdx + 1]
+                : Path.Combine(Directory.GetCurrentDirectory(), "vscode-agentlang");
+
+            VsCodeExtensionGenerator.ScaffoldExtension(outDir, Version);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Generated VS Code extension package at: {outDir}");
+            Console.ResetColor();
+            Console.WriteLine("  - package.json");
+            Console.WriteLine("  - language-configuration.json");
+            Console.WriteLine("  - syntaxes/agentlang.tmLanguage.json");
+            Console.WriteLine("\nTo install into VS Code:");
+            Console.WriteLine($"  code --install-extension {outDir} (or copy to ~/.vscode/extensions/)");
+            return 0;
+        }
+
         using var transport = new LspTransport(Console.OpenStandardInput(), Console.OpenStandardOutput(), leaveOpen: true);
         var server = new AgentLspServer(transport);
         await server.RunAsync();
@@ -1128,4 +1185,22 @@ public static class Program
             Console.WriteLine();
         }
     }
+}
+
+file sealed class TeeTextWriter : TextWriter
+{
+    private readonly TextWriter _w1;
+    private readonly TextWriter _w2;
+
+    public TeeTextWriter(TextWriter w1, TextWriter w2)
+    {
+        _w1 = w1;
+        _w2 = w2;
+    }
+
+    public override System.Text.Encoding Encoding => _w1.Encoding;
+    public override void Write(char value) { _w1.Write(value); _w2.Write(value); }
+    public override void Write(string? value) { _w1.Write(value); _w2.Write(value); }
+    public override void WriteLine(string? value) { _w1.WriteLine(value); _w2.WriteLine(value); }
+    public override void Flush() { _w1.Flush(); _w2.Flush(); }
 }

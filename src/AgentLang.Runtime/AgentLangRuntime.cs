@@ -78,6 +78,7 @@ public sealed class AgentLangRuntime
     }
     public EventBus EventBus => _eventBus;
     public ModelRegistry ModelRegistry => _modelRegistry;
+    public TextWriter Output => _output;
     public ToolRegistry ToolRegistry => _toolRegistry;
     public SecurityEngine SecurityEngine => _securityEngine;
     public IPersistentMemoryStore MemoryStore => _memoryStore;

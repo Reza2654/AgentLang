@@ -8,7 +8,7 @@ namespace AgentLang.VM.Bytecode;
 /// </summary>
 public sealed class BytecodeCompiler
 {
-    private readonly AgentBytecodeModule _module = new();
+    private AgentBytecodeModule _module = new();
     private readonly HashSet<string> _declaredAgents = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _builtInModules = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -16,9 +16,11 @@ public sealed class BytecodeCompiler
     };
     private int _tempCounter;
 
-    public AgentBytecodeModule Compile(ProgramNode program, string moduleName = "Main")
+    public AgentBytecodeModule Compile(ProgramNode program, string moduleName = "Main", bool optimize = true)
     {
-        _module.ModuleName = moduleName;
+        _module = new AgentBytecodeModule { ModuleName = moduleName };
+        _declaredAgents.Clear();
+        _tempCounter = 0;
 
         foreach (var decl in program.Declarations)
         {
@@ -34,6 +36,12 @@ public sealed class BytecodeCompiler
         }
 
         Emit(AgentOpCode.Halt);
+
+        if (optimize)
+        {
+            BytecodeOptimizer.Optimize(_module);
+        }
+
         return _module;
     }
 

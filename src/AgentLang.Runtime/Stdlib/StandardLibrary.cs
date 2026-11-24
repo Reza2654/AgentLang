@@ -24,6 +24,7 @@ public static class StandardLibrary
             "@stdlib/math" => MathModule,
             "@stdlib/time" => TimeModule,
             "@stdlib/collections" => CollectionsModule,
+            "@stdlib/env" => EnvModule,
             _ => throw new AgentLangRuntimeException($"Unknown standard library module: '{modulePath}'", errorCode: "STD001")
         };
     }
@@ -54,6 +55,7 @@ public static class StandardLibrary
                 "collections" or "@stdlib/collections" => CollectionsModule,
                 "crypto" or "@stdlib/crypto" => CryptoModule,
                 "rag" or "@stdlib/rag" => RagModule,
+                "env" or "@stdlib/env" => EnvModule,
                 _ => null
             };
 
@@ -72,11 +74,16 @@ public static class StandardLibrary
         if (funcName is "split") { result = TextModule["split"].Execute(args); return true; }
         if (funcName is "join") { result = TextModule["join"].Execute(args); return true; }
         if (funcName is "replace") { result = TextModule["replace"].Execute(args); return true; }
+        if (funcName is "index_of") { result = TextModule["index_of"].Execute(args); return true; }
         if (funcName is "to_lower") { result = TextModule["to_lower"].Execute(args); return true; }
         if (funcName is "to_upper") { result = TextModule["to_upper"].Execute(args); return true; }
         if (funcName is "starts_with") { result = TextModule["starts_with"].Execute(args); return true; }
         if (funcName is "ends_with") { result = TextModule["ends_with"].Execute(args); return true; }
         if (funcName is "contains") { result = CollectionsModule["contains"].Execute(args); return true; }
+        if (funcName is "unique") { result = CollectionsModule["unique"].Execute(args); return true; }
+        if (funcName is "slice") { result = CollectionsModule["slice"].Execute(args); return true; }
+        if (funcName is "env_get") { result = EnvModule["get"].Execute(args); return true; }
+        if (funcName is "env_has") { result = EnvModule["has"].Execute(args); return true; }
         if (funcName is "round") { result = MathModule["round"].Execute(args); return true; }
         if (funcName is "min") { result = MathModule["min"].Execute(args); return true; }
         if (funcName is "max") { result = MathModule["max"].Execute(args); return true; }
@@ -185,6 +192,13 @@ public static class StandardLibrary
 
             ["contains"] = new BuiltinFunctionValue("contains", args =>
                 args.Count > 1 && (args[0]?.ToString() ?? string.Empty).Contains(args[1]?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase)),
+
+            ["index_of"] = new BuiltinFunctionValue("index_of", args =>
+            {
+                string text = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
+                string sub = args.Count > 1 ? (args[1]?.ToString() ?? string.Empty) : string.Empty;
+                return text.IndexOf(sub, StringComparison.Ordinal);
+            }),
 
             ["len"] = new BuiltinFunctionValue("len", args =>
                 args.Count > 0 ? (args[0]?.ToString() ?? string.Empty).Length : 0)
@@ -336,6 +350,41 @@ public static class StandardLibrary
                     return list;
                 }
                 return new List<object?> { args[0] };
+            }),
+
+            ["unique"] = new BuiltinFunctionValue("unique", args =>
+            {
+                if (args.Count == 0 || args[0] == null) return new List<object?>();
+                if (args[0] is System.Collections.IEnumerable en && args[0] is not string)
+                {
+                    var seen = new HashSet<string>();
+                    var result = new List<object?>();
+                    foreach (var item in en.Cast<object?>())
+                    {
+                        string key = item?.ToString() ?? "\0null";
+                        if (seen.Add(key))
+                        {
+                            result.Add(item);
+                        }
+                    }
+                    return result;
+                }
+                return new List<object?> { args[0] };
+            }),
+
+            ["slice"] = new BuiltinFunctionValue("slice", args =>
+            {
+                if (args.Count == 0 || args[0] == null) return new List<object?>();
+                if (args[0] is System.Collections.IEnumerable en && args[0] is not string)
+                {
+                    var list = en.Cast<object?>().ToList();
+                    int start = args.Count > 1 ? Math.Max(0, Convert.ToInt32(args[1])) : 0;
+                    int count = args.Count > 2 ? Math.Max(0, Convert.ToInt32(args[2])) : list.Count - start;
+                    if (start >= list.Count) return new List<object?>();
+                    int take = Math.Min(count, list.Count - start);
+                    return list.GetRange(start, take);
+                }
+                return new List<object?>();
             })
         };
 
@@ -393,6 +442,35 @@ public static class StandardLibrary
 
                 double score = union > 0 ? (double)intersection / union : 0.0;
                 return Math.Round(score, 4);
+            })
+        };
+
+    public static readonly IReadOnlyDictionary<string, BuiltinFunctionValue> EnvModule =
+        new Dictionary<string, BuiltinFunctionValue>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["get"] = new BuiltinFunctionValue("get", args =>
+            {
+                string name = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
+                string def = args.Count > 1 ? (args[1]?.ToString() ?? string.Empty) : string.Empty;
+                if (string.IsNullOrEmpty(name)) return def;
+                return Environment.GetEnvironmentVariable(name) ?? def;
+            }),
+
+            ["has"] = new BuiltinFunctionValue("has", args =>
+            {
+                string name = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
+                if (string.IsNullOrEmpty(name)) return false;
+                return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name));
+            }),
+
+            ["all"] = new BuiltinFunctionValue("all", _ =>
+            {
+                var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+                {
+                    dict[entry.Key.ToString() ?? ""] = entry.Value?.ToString() ?? "";
+                }
+                return dict;
             })
         };
 }

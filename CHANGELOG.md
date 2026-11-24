@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-beta.2] — 2026-11-24
+
+### Added & Completed
+- **Standard Library Completion (`@stdlib/env` & Collection Helpers)**: Added `EnvModule` (`env.get`, `env.has`, `env.all` and global `env_get`, `env_has`), completing the built-in modules declared in the compiler. Added `collections.unique(list)`, `collections.slice(list, start, count)`, and `text.index_of(text, sub)`.
+- **Bytecode Peephole Optimizer (`BytecodeOptimizer`)**: Added compile-time constant folding for arithmetic (`+`, `-`, `*`, `/`), string concatenation, comparisons, and unary operations (`-`, `!`), plus redundant `Nop` compaction with automatic jump target remapping.
+- **Compiler Re-entrancy**: Fixed `BytecodeCompiler` module instance reuse across multiple compilation passes, ensuring clean module state per compile invocation.
+- **VS Code Extension Scaffolding & TextMate Grammar (`agent lsp --vscode` / `--grammar`)**: Added `VsCodeExtensionGenerator` producing `package.json`, `language-configuration.json`, and standard TextMate grammar `agentlang.tmLanguage.json` for one-click VS Code syntax highlighting and editor setup.
+- **CLI Output Redirection (`agent run -o <file>` / `--output <file>`)**: Implemented `TeeTextWriter` to stream execution output to stdout while simultaneously writing to a designated output file.
+- **Test Suite Expansion**: Added `V100Beta2Tests.cs` bringing test coverage to **257 passing tests (239 unit + 18 integration, 100% pass rate)**.
+
 ## [1.0.0-beta.1] — 2026-11-16
 
 ### Added & Completed

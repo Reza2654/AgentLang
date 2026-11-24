@@ -20,8 +20,8 @@ public sealed class BytecodeExecutor
 
     public BytecodeExecutor(AgentLangRuntime? runtime = null, TextWriter? output = null)
     {
-        _output = output ?? Console.Out;
-        _runtime = runtime ?? new AgentLangRuntime(output: _output);
+        _runtime = runtime ?? new AgentLangRuntime(output: output ?? Console.Out);
+        _output = output ?? _runtime.Output ?? Console.Out;
     }
 
     public Task<object?> ExecuteAsync(AgentBytecodeModule module, CancellationToken ct = default) =>
