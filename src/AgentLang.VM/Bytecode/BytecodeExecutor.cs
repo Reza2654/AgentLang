@@ -25,10 +25,18 @@ public sealed class BytecodeExecutor
     }
 
     public Task<object?> ExecuteAsync(AgentBytecodeModule module, CancellationToken ct = default) =>
-        ExecuteAsync(module, null, ct);
+        ExecuteInternalAsync(module, null, null, ct);
 
-    public async Task<object?> ExecuteAsync(AgentBytecodeModule module, BytecodeExecutionMetrics? metrics, CancellationToken ct = default)
+    public Task<object?> ExecuteAsync(AgentBytecodeModule module, BytecodeExecutionMetrics? metrics, CancellationToken ct = default) =>
+        ExecuteInternalAsync(module, metrics, null, ct);
+
+    internal async Task<object?> ExecuteInternalAsync(
+        AgentBytecodeModule module,
+        BytecodeExecutionMetrics? metrics,
+        Action<int>? onStep,
+        CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(module);
         var sw = metrics != null ? System.Diagnostics.Stopwatch.StartNew() : null;
         var stack = new Stack<object?>();
         var vars = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
@@ -48,6 +56,12 @@ public sealed class BytecodeExecutor
         while (ip < module.Instructions.Count)
         {
             ct.ThrowIfCancellationRequested();
+            if (ip < 0)
+            {
+                throw new AgentLangRuntimeException($"Invalid bytecode instruction pointer: {ip}.", errorCode: "VM-BAD-JUMP");
+            }
+
+            onStep?.Invoke(ip);
             var instr = module.Instructions[ip];
             ip++;
 
@@ -63,7 +77,7 @@ public sealed class BytecodeExecutor
                     break;
 
                 case AgentOpCode.PushConst:
-                    stack.Push(module.ConstantPool[instr.Operand]);
+                    stack.Push(GetConstant(module, instr.Operand));
                     break;
 
                 case AgentOpCode.Pop:
@@ -72,7 +86,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.LoadVar:
                 {
-                    string sym = module.SymbolTable[instr.Operand];
+                    string sym = GetSymbol(module, instr.Operand);
                     if (vars.TryGetValue(sym, out var val))
                         stack.Push(val);
                     else
@@ -82,7 +96,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.StoreVar:
                 {
-                    string sym = module.SymbolTable[instr.Operand];
+                    string sym = GetSymbol(module, instr.Operand);
                     var val = stack.Count > 0 ? stack.Pop() : null;
                     vars[sym] = val;
                     _runtime.GlobalScope.SetLocal(sym, val);
@@ -145,7 +159,10 @@ public sealed class BytecodeExecutor
                 {
                     var right = Pop(stack);
                     var left = Pop(stack);
-                    stack.Push(ToDouble(left) % ToDouble(right));
+                    double denom = ToDouble(right);
+                    if (denom == 0.0)
+                        throw new AgentLangRuntimeException("Modulo by zero in bytecode execution.", errorCode: "VM-DIV-ZERO");
+                    stack.Push(ToDouble(left) % denom);
                     break;
                 }
 
@@ -214,15 +231,15 @@ public sealed class BytecodeExecutor
                 }
 
                 case AgentOpCode.Jump:
-                    ip = instr.Operand;
+                    ip = ValidateJumpTarget(instr.Operand, module.Instructions.Count);
                     break;
 
                 case AgentOpCode.JumpIfTrue:
-                    if (IsTruthy(Pop(stack))) ip = instr.Operand;
+                    if (IsTruthy(Pop(stack))) ip = ValidateJumpTarget(instr.Operand, module.Instructions.Count);
                     break;
 
                 case AgentOpCode.JumpIfFalse:
-                    if (!IsTruthy(Pop(stack))) ip = instr.Operand;
+                    if (!IsTruthy(Pop(stack))) ip = ValidateJumpTarget(instr.Operand, module.Instructions.Count);
                     break;
 
                 case AgentOpCode.Print:
@@ -235,7 +252,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.GetMember:
                 {
-                    string member = module.SymbolTable[instr.Operand];
+                    string member = GetSymbol(module, instr.Operand);
                     var target = Pop(stack);
                     stack.Push(AgentLangRuntime.ResolveMemberAccess(target, member));
                     break;
@@ -243,8 +260,9 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.MakeList:
                 {
-                    var list = new List<object?>(instr.Operand);
-                    for (int i = 0; i < instr.Operand; i++) list.Add(Pop(stack));
+                    int count = ValidateCount(instr.Operand, "MakeList");
+                    var list = new List<object?>(count);
+                    for (int i = 0; i < count; i++) list.Add(Pop(stack));
                     list.Reverse();
                     stack.Push(list);
                     break;
@@ -252,8 +270,9 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.MakeMap:
                 {
-                    var pairs = new List<(string Key, object? Value)>(instr.Operand);
-                    for (int i = 0; i < instr.Operand; i++)
+                    int count = ValidateCount(instr.Operand, "MakeMap");
+                    var pairs = new List<(string Key, object? Value)>(count);
+                    for (int i = 0; i < count; i++)
                     {
                         var val = Pop(stack);
                         string key = Pop(stack)?.ToString() ?? "";
@@ -268,7 +287,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.DefineAgent:
                 {
-                    int cfgCount = instr.Operand;
+                    int cfgCount = ValidateCount(instr.Operand, "DefineAgent");
                     var pairs = new List<(string Key, object? Value)>(cfgCount);
                     for (int i = 0; i < cfgCount; i++)
                     {
@@ -288,7 +307,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.CallAgent:
                 {
-                    int argCount = instr.Operand;
+                    int argCount = ValidateCount(instr.Operand, "CallAgent");
                     var args = PopArgsReversed(stack, argCount);
                     string methodName = Pop(stack)?.ToString() ?? "solve";
                     string agentName = Pop(stack)?.ToString() ?? "";
@@ -300,7 +319,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.CallFunc:
                 {
-                    int argCount = instr.Operand;
+                    int argCount = ValidateCount(instr.Operand, "CallFunc");
                     var args = PopArgsReversed(stack, argCount);
                     string funcName = Pop(stack)?.ToString() ?? "";
 
@@ -311,7 +330,7 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.CallTool:
                 {
-                    string toolName = module.SymbolTable[instr.Operand];
+                    string toolName = GetSymbol(module, instr.Operand);
                     var arg = stack.Count > 0 ? stack.Pop() : null;
                     var tool = _runtime.ToolRegistry.GetTool(toolName);
                     if (tool != null)
@@ -341,10 +360,43 @@ public sealed class BytecodeExecutor
 
                 case AgentOpCode.Halt:
                     return Finish(returnValue ?? (stack.Count > 0 ? stack.Peek() : null));
+
+                default:
+                    throw new AgentLangRuntimeException(
+                        $"Unsupported or corrupted bytecode opcode '{instr.OpCode}' ({(byte)instr.OpCode}) at line {instr.Line}.",
+                        errorCode: "VM-INVALID-OPCODE");
             }
         }
 
         return Finish(returnValue ?? (stack.Count > 0 ? stack.Peek() : null));
+    }
+
+    private static object? GetConstant(AgentBytecodeModule module, int index)
+    {
+        if (index < 0 || index >= module.ConstantPool.Count)
+            throw new AgentLangRuntimeException($"Invalid bytecode constant pool index {index}.", errorCode: "VM-CORRUPT-BYTECODE");
+        return module.ConstantPool[index];
+    }
+
+    private static string GetSymbol(AgentBytecodeModule module, int index)
+    {
+        if (index < 0 || index >= module.SymbolTable.Count)
+            throw new AgentLangRuntimeException($"Invalid bytecode symbol table index {index}.", errorCode: "VM-CORRUPT-BYTECODE");
+        return module.SymbolTable[index];
+    }
+
+    private static int ValidateJumpTarget(int target, int instructionCount)
+    {
+        if (target < 0 || target > instructionCount)
+            throw new AgentLangRuntimeException($"Invalid bytecode jump target {target} (valid range: 0..{instructionCount}).", errorCode: "VM-BAD-JUMP");
+        return target;
+    }
+
+    private static int ValidateCount(int count, string opName)
+    {
+        if (count < 0 || count > 1_000_000)
+            throw new AgentLangRuntimeException($"Invalid operand count {count} for opcode {opName}.", errorCode: "VM-CORRUPT-BYTECODE");
+        return count;
     }
 
     private AgentValue BuildAgentValue(string agentName, List<(string Key, object? Value)> config)

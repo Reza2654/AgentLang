@@ -114,8 +114,11 @@ public sealed class AgentVirtualMachine
         using var span = Tracer.StartSpan($"vm.execute:{Path.GetFileName(filePath)}");
         span.SetAttribute("file.path", filePath);
 
-        using var cts = Options.ExecutionTimeout.HasValue
-            ? CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(Options.ExecutionTimeout.Value).Token)
+        using var timeoutCts = Options.ExecutionTimeout.HasValue
+            ? new CancellationTokenSource(Options.ExecutionTimeout.Value)
+            : null;
+        using var cts = timeoutCts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
             : null;
         var effectiveToken = cts?.Token ?? ct;
 
@@ -201,8 +204,11 @@ public sealed class AgentVirtualMachine
         using var span = Tracer.StartSpan("vm.program.execute");
         span.SetAttribute("program.declarations", program.Declarations.Count);
 
-        using var cts = Options.ExecutionTimeout.HasValue
-            ? CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(Options.ExecutionTimeout.Value).Token)
+        using var timeoutCts = Options.ExecutionTimeout.HasValue
+            ? new CancellationTokenSource(Options.ExecutionTimeout.Value)
+            : null;
+        using var cts = timeoutCts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
             : null;
         var effectiveToken = cts?.Token ?? ct;
 
@@ -242,15 +248,48 @@ public sealed class AgentVirtualMachine
         span.SetAttribute("bytecode.instructions", module.Instructions.Count);
         span.SetAttribute("bytecode.constants", module.ConstantPool.Count);
 
+        using var timeoutCts = Options.ExecutionTimeout.HasValue
+            ? new CancellationTokenSource(Options.ExecutionTimeout.Value)
+            : null;
+        using var cts = timeoutCts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
+            : null;
+        var effectiveToken = cts?.Token ?? ct;
+
         try
         {
-            var result = await BytecodeExecutor.ExecuteAsync(module, metrics, ct);
+            var result = await BytecodeExecutor.ExecuteInternalAsync(
+                module,
+                metrics,
+                _ =>
+                {
+                    CyclesExecuted++;
+                    if (CyclesExecuted > Options.MaxInstructions)
+                    {
+                        Status = "Halted:CycleLimitExceeded";
+                        throw new VmCycleLimitExceededException(Options.MaxInstructions, CyclesExecuted);
+                    }
+                },
+                effectiveToken);
             Status = "Completed";
+            span.SetAttribute("cycles", CyclesExecuted);
             return result;
+        }
+        catch (VmCycleLimitExceededException ex)
+        {
+            Status = "Halted:CycleLimitExceeded";
+            span.SetError(ex.Message);
+            throw;
+        }
+        catch (VmSandboxViolationException ex)
+        {
+            Status = "Halted:SandboxViolation";
+            span.SetError(ex.Message);
+            throw;
         }
         catch (Exception ex)
         {
-            Status = "Faulted";
+            if (Status == "Running") Status = "Faulted";
             span.SetError(ex.Message);
             throw;
         }

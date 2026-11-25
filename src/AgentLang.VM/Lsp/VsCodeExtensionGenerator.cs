@@ -197,7 +197,7 @@ public static class VsCodeExtensionGenerator
         return JsonSerializer.Serialize(pkg, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    public static void ScaffoldExtension(string outputDirectory, string version = "1.0.0-rc.1")
+    public static void ScaffoldExtension(string outputDirectory, string version = "1.0.0-rc.2")
     {
         Directory.CreateDirectory(outputDirectory);
         string syntaxesDir = Path.Combine(outputDirectory, "syntaxes");

@@ -4,6 +4,9 @@ namespace AgentLang.VM.Lsp;
 
 public sealed class LspTransport : IDisposable
 {
+    public const int MaxMessageBytes = 32 * 1024 * 1024;
+    private const int MaxHeaderLineBytes = 16 * 1024;
+
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly bool _leaveOpen;
@@ -19,7 +22,6 @@ public sealed class LspTransport : IDisposable
     public async Task<string?> ReadMessageAsync(CancellationToken ct = default)
     {
         int contentLength = 0;
-        var headerBuffer = new StringBuilder();
 
         while (true)
         {
@@ -42,6 +44,10 @@ public sealed class LspTransport : IDisposable
         }
 
         if (contentLength <= 0) return null;
+        if (contentLength > MaxMessageBytes)
+        {
+            throw new InvalidDataException($"LSP Content-Length {contentLength} exceeds maximum allowed size of {MaxMessageBytes} bytes.");
+        }
 
         byte[] bodyBuffer = new byte[contentLength];
         int totalRead = 0;
@@ -99,6 +105,10 @@ public sealed class LspTransport : IDisposable
                 break;
             }
             lineBytes.Add(b);
+            if (lineBytes.Count > MaxHeaderLineBytes)
+            {
+                throw new InvalidDataException($"LSP header line exceeded maximum length of {MaxHeaderLineBytes} bytes.");
+            }
         }
 
         return Encoding.ASCII.GetString(lineBytes.ToArray());

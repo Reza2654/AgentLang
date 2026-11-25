@@ -38,95 +38,133 @@ public sealed class AgentLspServer
 
     public async Task HandleMessageAsync(string rawMessage, CancellationToken ct = default)
     {
-        using var doc = JsonDocument.Parse(rawMessage);
-        var root = doc.RootElement;
-
-        if (!root.TryGetProperty("method", out var methodProp))
+        JsonDocument doc;
+        try
         {
+            doc = JsonDocument.Parse(rawMessage);
+        }
+        catch (JsonException ex)
+        {
+            await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Failed(null, -32700, $"Parse error: {ex.Message}")), ct);
             return;
         }
 
-        string method = methodProp.GetString() ?? "";
-        object? id = null;
-        if (root.TryGetProperty("id", out var idProp))
+        using (doc)
         {
-            id = idProp.ValueKind switch
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
             {
-                JsonValueKind.Number => idProp.GetInt64(),
-                JsonValueKind.String => idProp.GetString(),
-                _ => null
-            };
-        }
+                await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Failed(null, -32600, "Invalid Request: expected JSON object.")), ct);
+                return;
+            }
 
-        switch (method)
-        {
-            case "initialize":
-                await HandleInitializeAsync(id, ct);
-                break;
+            object? id = null;
+            if (root.TryGetProperty("id", out var idProp))
+            {
+                id = idProp.ValueKind switch
+                {
+                    JsonValueKind.Number => idProp.TryGetInt64(out long lVal) ? lVal : idProp.GetDouble(),
+                    JsonValueKind.String => idProp.GetString(),
+                    _ => null
+                };
+            }
 
-            case "initialized":
-                // No-op client confirmation
-                break;
-
-            case "textDocument/didOpen":
-                await HandleDidOpenAsync(root, ct);
-                break;
-
-            case "textDocument/didChange":
-                await HandleDidChangeAsync(root, ct);
-                break;
-
-            case "textDocument/didClose":
-                await HandleDidCloseAsync(root, ct);
-                break;
-
-            case "textDocument/completion":
-                await HandleCompletionAsync(id, root, ct);
-                break;
-
-            case "textDocument/hover":
-                await HandleHoverAsync(id, root, ct);
-                break;
-
-            case "textDocument/documentSymbol":
-                await HandleDocumentSymbolAsync(id, root, ct);
-                break;
-
-            case "textDocument/definition":
-                await HandleDefinitionAsync(id, root, ct);
-                break;
-
-            case "textDocument/formatting":
-                await HandleFormattingAsync(id, root, ct);
-                break;
-
-            case "textDocument/codeAction":
-                await HandleCodeActionAsync(id, root, ct);
-                break;
-
-            case "textDocument/rename":
-                await HandleRenameAsync(id, root, ct);
-                break;
-
-            case "textDocument/references":
-                await HandleReferencesAsync(id, root, ct);
-                break;
-
-            case "shutdown":
-                await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
-                break;
-
-            case "exit":
-                IsRunning = false;
-                break;
-
-            default:
+            if (!root.TryGetProperty("method", out var methodProp) || methodProp.ValueKind != JsonValueKind.String)
+            {
                 if (id != null)
                 {
-                    // Return empty success for unhandled optional methods
-                    await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
+                    await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Failed(id, -32600, "Invalid Request: missing string 'method'.")), ct);
                 }
-                break;
+                return;
+            }
+
+            string method = methodProp.GetString() ?? "";
+
+            try
+            {
+                switch (method)
+                {
+                    case "initialize":
+                        await HandleInitializeAsync(id, ct);
+                        break;
+
+                    case "initialized":
+                        // No-op client confirmation
+                        break;
+
+                    case "textDocument/didOpen":
+                        await HandleDidOpenAsync(root, ct);
+                        break;
+
+                    case "textDocument/didChange":
+                        await HandleDidChangeAsync(root, ct);
+                        break;
+
+                    case "textDocument/didClose":
+                        await HandleDidCloseAsync(root, ct);
+                        break;
+
+                    case "textDocument/completion":
+                        await HandleCompletionAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/hover":
+                        await HandleHoverAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/documentSymbol":
+                        await HandleDocumentSymbolAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/definition":
+                        await HandleDefinitionAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/formatting":
+                        await HandleFormattingAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/codeAction":
+                        await HandleCodeActionAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/rename":
+                        await HandleRenameAsync(id, root, ct);
+                        break;
+
+                    case "textDocument/references":
+                        await HandleReferencesAsync(id, root, ct);
+                        break;
+
+                    case "shutdown":
+                        await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
+                        break;
+
+                    case "exit":
+                        IsRunning = false;
+                        break;
+
+                    default:
+                        if (id != null)
+                        {
+                            // Return empty success for unhandled optional methods
+                            await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Success(id, null)), ct);
+                        }
+                        break;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (id != null)
+                {
+                    int errCode = ex is KeyNotFoundException or InvalidOperationException ? -32602 : -32603;
+                    await _transport.SendMessageAsync(JsonSerializer.Serialize(LspResponse.Failed(id, errCode, ex.Message)), ct);
+                }
+            }
         }
     }
 
@@ -153,7 +191,7 @@ public sealed class AgentLspServer
             serverInfo = new
             {
                 name = "agentlang-lsp",
-                version = "1.0.0-rc.1"
+                version = "1.0.0-rc.2"
             }
         };
 

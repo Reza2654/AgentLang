@@ -61,18 +61,31 @@ public static class WatchCommand
 
         watcher.Changed += async (s, e) =>
         {
-            lock (debounceLock)
+            try
             {
-                if (DateTime.UtcNow - lastTrigger < TimeSpan.FromMilliseconds(250))
+                lock (debounceLock)
                 {
-                    return;
+                    if (DateTime.UtcNow - lastTrigger < TimeSpan.FromMilliseconds(250))
+                    {
+                        return;
+                    }
+                    lastTrigger = DateTime.UtcNow;
                 }
-                lastTrigger = DateTime.UtcNow;
-            }
 
-            // Small delay to let file handle release
-            await Task.Delay(50);
-            await EvaluateFileAsync(filePath, shouldRun);
+                // Small delay to let file handle release
+                await Task.Delay(50, cts.Token);
+                await EvaluateFileAsync(filePath, shouldRun);
+            }
+            catch (OperationCanceledException)
+            {
+                // Watcher stopping cleanly
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"  [Warn] Watcher recovery after error: {ex.Message}");
+                Console.ResetColor();
+            }
         };
 
         try

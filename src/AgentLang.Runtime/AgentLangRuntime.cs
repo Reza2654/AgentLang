@@ -3286,7 +3286,7 @@ public sealed class AgentLangRuntime
                 BinaryOperator.Subtract => l - r,
                 BinaryOperator.Multiply => l * r,
                 BinaryOperator.Divide => r == 0 ? throw new AgentLangRuntimeException("Division by zero", errorCode: "AGT303") : l / r,
-                BinaryOperator.Modulo => l % r,
+                BinaryOperator.Modulo => r == 0 ? throw new AgentLangRuntimeException("Modulo by zero", errorCode: "AGT303") : l % r,
                 _ => throw new InvalidOperationException()
             };
         }
@@ -3328,8 +3328,13 @@ public sealed class AgentLangRuntime
         null => false,
         bool b => b,
         string s => !string.IsNullOrEmpty(s),
-        double d => d != 0,
+        double d => d != 0.0 && !double.IsNaN(d),
+        float f => f != 0.0f && !float.IsNaN(f),
         int i => i != 0,
+        long l => l != 0L,
+        decimal m => m != 0m,
+        System.Collections.ICollection c => c.Count > 0,
+        IReadOnlyCollection<object?> rc => rc.Count > 0,
         _ => true
     };
 

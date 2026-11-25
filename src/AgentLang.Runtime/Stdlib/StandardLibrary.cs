@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentLang.Errors;
+using AgentLang.Runtime.Data;
 using AgentLang.Runtime.Values;
 
 namespace AgentLang.Runtime.Stdlib;
@@ -126,9 +128,9 @@ public static class StandardLibrary
             ["random_token"] = new BuiltinFunctionValue("random_token", args =>
             {
                 int len = 32;
-                if (args.Count > 0 && int.TryParse(args[0]?.ToString(), out int parsedLen) && parsedLen > 0)
+                if (args.Count > 0 && int.TryParse(args[0]?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedLen) && parsedLen > 0)
                 {
-                    len = parsedLen;
+                    len = Math.Clamp(parsedLen, 1, 65536);
                 }
                 return RandomNumberGenerator.GetHexString(len, lowercase: true);
             })
@@ -172,7 +174,18 @@ public static class StandardLibrary
                 string text = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
                 string pattern = args.Count > 1 ? (args[1]?.ToString() ?? string.Empty) : string.Empty;
                 if (string.IsNullOrEmpty(pattern)) return false;
-                return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase);
+                try
+                {
+                    return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new AgentLangRuntimeException($"Invalid regex pattern '{pattern}': {ex.Message}", errorCode: "STD-REGEX-ERR", innerException: ex);
+                }
+                catch (RegexMatchTimeoutException ex)
+                {
+                    throw new AgentLangRuntimeException($"Regex match timed out for pattern '{pattern}'", errorCode: "STD-REGEX-TIMEOUT", innerException: ex);
+                }
             }),
 
             ["replace"] = new BuiltinFunctionValue("replace", args =>
@@ -180,6 +193,7 @@ public static class StandardLibrary
                 string text = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
                 string oldVal = args.Count > 1 ? (args[1]?.ToString() ?? string.Empty) : string.Empty;
                 string newVal = args.Count > 2 ? (args[2]?.ToString() ?? string.Empty) : string.Empty;
+                if (string.IsNullOrEmpty(oldVal)) return text;
                 return text.Replace(oldVal, newVal, StringComparison.Ordinal);
             }),
 
@@ -209,6 +223,38 @@ public static class StandardLibrary
                 args.Count > 0 ? (args[0]?.ToString() ?? string.Empty).Length : 0)
         };
 
+    private static double ToDoubleSafe(object? value, double fallback = 0.0)
+    {
+        if (value == null) return fallback;
+        return value switch
+        {
+            double d => double.IsNaN(d) || double.IsInfinity(d) ? fallback : d,
+            float f => float.IsNaN(f) || float.IsInfinity(f) ? fallback : f,
+            int i => i,
+            long l => l,
+            decimal m => (double)m,
+            bool b => b ? 1.0 : 0.0,
+            _ => double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) ? parsed : fallback
+        };
+    }
+
+    private static int ToIntSafe(object? value, int fallback = 0)
+    {
+        if (value == null) return fallback;
+        return value switch
+        {
+            int i => i,
+            long l => (int)Math.Clamp(l, int.MinValue, int.MaxValue),
+            double d => double.IsNaN(d) || double.IsInfinity(d) ? fallback : (int)Math.Clamp(d, int.MinValue, int.MaxValue),
+            float f => float.IsNaN(f) || float.IsInfinity(f) ? fallback : (int)Math.Clamp(f, int.MinValue, int.MaxValue),
+            decimal m => (int)Math.Clamp(m, int.MinValue, int.MaxValue),
+            bool b => b ? 1 : 0,
+            _ => int.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                ? parsed
+                : (int)ToDoubleSafe(value, fallback)
+        };
+    }
+
     public static readonly IReadOnlyDictionary<string, BuiltinFunctionValue> JsonModule =
         new Dictionary<string, BuiltinFunctionValue>(StringComparer.OrdinalIgnoreCase)
         {
@@ -216,14 +262,26 @@ public static class StandardLibrary
             {
                 string json = args.Count > 0 ? (args[0]?.ToString() ?? string.Empty) : string.Empty;
                 if (string.IsNullOrWhiteSpace(json)) return null;
-                using var doc = JsonDocument.Parse(json);
-                return ConvertJsonElement(doc.RootElement);
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    return ConvertJsonElement(doc.RootElement);
+                }
+                catch (JsonException ex)
+                {
+                    throw new AgentLangRuntimeException($"Invalid JSON payload: {ex.Message}", errorCode: "STD-JSON-ERR", innerException: ex);
+                }
             }),
 
             ["stringify"] = new BuiltinFunctionValue("stringify", args =>
             {
                 if (args.Count == 0 || args[0] == null) return "null";
-                return JsonSerializer.Serialize(args[0], new JsonSerializerOptions { WriteIndented = false });
+                using var ms = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false }))
+                {
+                    SchemaEntityStore.WriteJsonValue(writer, args[0]);
+                }
+                return Encoding.UTF8.GetString(ms.ToArray());
             }),
 
             ["is_valid"] = new BuiltinFunctionValue("is_valid", args =>
@@ -247,52 +305,54 @@ public static class StandardLibrary
         {
             ["min"] = new BuiltinFunctionValue("min", args =>
             {
-                double a = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
-                double b = args.Count > 1 ? Convert.ToDouble(args[1]) : 0;
+                double a = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
+                double b = args.Count > 1 ? ToDoubleSafe(args[1]) : 0;
                 return Math.Min(a, b);
             }),
 
             ["max"] = new BuiltinFunctionValue("max", args =>
             {
-                double a = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
-                double b = args.Count > 1 ? Convert.ToDouble(args[1]) : 0;
+                double a = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
+                double b = args.Count > 1 ? ToDoubleSafe(args[1]) : 0;
                 return Math.Max(a, b);
             }),
 
             ["round"] = new BuiltinFunctionValue("round", args =>
             {
-                double val = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
-                int decimals = args.Count > 1 ? Convert.ToInt32(args[1]) : 0;
-                return Math.Round(val, decimals);
+                double val = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
+                int decimals = args.Count > 1 ? Math.Clamp(ToIntSafe(args[1]), 0, 15) : 0;
+                return Math.Round(val, decimals, MidpointRounding.AwayFromZero);
             }),
 
             ["abs"] = new BuiltinFunctionValue("abs", args =>
-                args.Count > 0 ? Math.Abs(Convert.ToDouble(args[0])) : 0),
+                args.Count > 0 ? Math.Abs(ToDoubleSafe(args[0])) : 0),
 
             ["clamp"] = new BuiltinFunctionValue("clamp", args =>
             {
-                double val = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
-                double min = args.Count > 1 ? Convert.ToDouble(args[1]) : 0;
-                double max = args.Count > 2 ? Convert.ToDouble(args[2]) : 0;
+                double val = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
+                double min = args.Count > 1 ? ToDoubleSafe(args[1]) : 0;
+                double max = args.Count > 2 ? ToDoubleSafe(args[2]) : 0;
+                if (min > max) (min, max) = (max, min);
                 return Math.Clamp(val, min, max);
             }),
 
             ["floor"] = new BuiltinFunctionValue("floor", args =>
-                args.Count > 0 ? Math.Floor(Convert.ToDouble(args[0])) : 0),
+                args.Count > 0 ? Math.Floor(ToDoubleSafe(args[0])) : 0),
 
             ["ceil"] = new BuiltinFunctionValue("ceil", args =>
-                args.Count > 0 ? Math.Ceiling(Convert.ToDouble(args[0])) : 0),
+                args.Count > 0 ? Math.Ceiling(ToDoubleSafe(args[0])) : 0),
 
             ["pow"] = new BuiltinFunctionValue("pow", args =>
             {
-                double b = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
-                double exp = args.Count > 1 ? Convert.ToDouble(args[1]) : 1;
-                return Math.Pow(b, exp);
+                double b = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
+                double exp = args.Count > 1 ? ToDoubleSafe(args[1], 1.0) : 1;
+                double res = Math.Pow(b, exp);
+                return double.IsNaN(res) || double.IsInfinity(res) ? 0.0 : res;
             }),
 
             ["sqrt"] = new BuiltinFunctionValue("sqrt", args =>
             {
-                double val = args.Count > 0 ? Convert.ToDouble(args[0]) : 0;
+                double val = args.Count > 0 ? ToDoubleSafe(args[0]) : 0;
                 return Math.Sqrt(Math.Max(0, val));
             })
         };
@@ -360,10 +420,15 @@ public static class StandardLibrary
             ["elapsed_ms"] = new BuiltinFunctionValue("elapsed_ms", args =>
             {
                 if (args.Count == 0 || args[0] == null) return 0.0;
+                if (args[0] is long msVal)
+                    return (double)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - msVal);
+                if (args[0] is double dVal && !double.IsNaN(dVal) && !double.IsInfinity(dVal))
+                    return (double)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)dVal);
                 string s = args[0]?.ToString() ?? "";
-                if (DateTime.TryParse(s, out var dt))
+                if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var dt) ||
+                    DateTime.TryParse(s, out dt))
                     return (DateTime.UtcNow - dt.ToUniversalTime()).TotalMilliseconds;
-                if (long.TryParse(s, out var ms))
+                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms))
                     return (double)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ms);
                 return 0.0;
             })
@@ -451,8 +516,8 @@ public static class StandardLibrary
                 if (args[0] is System.Collections.IEnumerable en && args[0] is not string)
                 {
                     var list = en.Cast<object?>().ToList();
-                    int start = args.Count > 1 ? Math.Max(0, Convert.ToInt32(args[1])) : 0;
-                    int count = args.Count > 2 ? Math.Max(0, Convert.ToInt32(args[2])) : list.Count - start;
+                    int start = args.Count > 1 ? Math.Max(0, ToIntSafe(args[1])) : 0;
+                    int count = args.Count > 2 ? Math.Max(0, ToIntSafe(args[2])) : list.Count - start;
                     if (start >= list.Count) return new List<object?>();
                     int take = Math.Min(count, list.Count - start);
                     return list.GetRange(start, take);

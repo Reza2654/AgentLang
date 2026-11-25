@@ -21,7 +21,7 @@ namespace AgentLang.Cli;
 
 public static class Program
 {
-    public const string Version = "1.0.0-rc.1";
+    public const string Version = "1.0.0-rc.2";
 
     public static async Task<int> Main(string[] args)
     {
@@ -224,13 +224,17 @@ public static class Program
         string? outputFile = null;
         int oIdx = Array.IndexOf(args, "-o");
         if (oIdx < 0) oIdx = Array.IndexOf(args, "--output");
-        if (oIdx >= 0 && oIdx + 1 < args.Length)
+        if (oIdx >= 0)
         {
+            if (oIdx + 1 >= args.Length || string.IsNullOrWhiteSpace(args[oIdx + 1]) || args[oIdx + 1].StartsWith('-'))
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Error: Missing output file path after '-o'/'--output'.");
+                Console.ResetColor();
+                return 1;
+            }
             outputFile = args[oIdx + 1];
         }
-
-        using var capturedOutput = outputFile != null ? new StringWriter() : null;
-        TextWriter effectiveOut = capturedOutput != null ? new TeeTextWriter(Console.Out, capturedOutput) : Console.Out;
 
         if (!File.Exists(filePath))
         {
@@ -246,27 +250,36 @@ public static class Program
             projectConfig.ApplyEnvironment();
         }
 
+        using var capturedOutput = outputFile != null ? new StringWriter() : null;
+        TextWriter rawOut = capturedOutput != null ? new TeeTextWriter(Console.Out, capturedOutput) : Console.Out;
+        using var dlpOut = enableDlp ? new DlpSanitizingTextWriter(rawOut) : null;
+        TextWriter effectiveOut = dlpOut ?? rawOut;
+
         // Handle pre-compiled bytecode (.agtc) execution
         if (filePath.EndsWith(".agtc", StringComparison.OrdinalIgnoreCase))
         {
-            var module = AgentBytecodeModule.LoadFromFile(filePath);
-            var vm = new AgentVirtualMachine(runtime: new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut));
-            var metrics = enableProfile ? new BytecodeExecutionMetrics() : null;
-            var result = await vm.ExecuteBytecodeAsync(module, metrics);
-            if (enableProfile && metrics != null)
+            try
             {
-                PrintExecutionMetrics(metrics);
+                var module = AgentBytecodeModule.LoadFromFile(filePath);
+                var vm = new AgentVirtualMachine(runtime: new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut));
+                var metrics = enableProfile ? new BytecodeExecutionMetrics() : null;
+                var result = await vm.ExecuteBytecodeAsync(module, metrics);
+                if (enableProfile && metrics != null)
+                {
+                    PrintExecutionMetrics(metrics);
+                }
+                if (enableTrace)
+                {
+                    Console.WriteLine();
+                    await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+                }
+                return 0;
             }
-            if (enableTrace)
+            finally
             {
-                Console.WriteLine();
-                await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+                effectiveOut.Flush();
+                await SaveCapturedOutputAsync(capturedOutput, outputFile);
             }
-            if (capturedOutput != null && outputFile != null)
-            {
-                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
-            }
-            return 0;
         }
 
         string source = await File.ReadAllTextAsync(filePath);
@@ -300,96 +313,104 @@ public static class Program
         // 3. Runtime execution
         var runtime = new AgentLangRuntime(securityEngine: secEngine, output: effectiveOut);
 
-        if (enableStream)
+        try
         {
-            var vm = new AgentVirtualMachine(runtime: runtime);
-            var channel = new AgentStreamChannel();
-            var streamTask = Task.Run(async () =>
+            if (enableStream)
             {
-                await foreach (var ev in channel.ReadAllAsync())
+                var vm = new AgentVirtualMachine(runtime: runtime);
+                var channel = new AgentStreamChannel();
+                var streamTask = Task.Run(async () =>
                 {
-                    switch (ev.Type)
+                    await foreach (var ev in channel.ReadAllAsync())
                     {
-                        case AgentStreamEventType.Thought:
-                            Console.ForegroundColor = ConsoleColor.DarkGray;
-                            Console.WriteLine($"[thought] {ev.Content}");
-                            Console.ResetColor();
-                            break;
-                        case AgentStreamEventType.Token:
-                            Console.Write(ev.Content);
-                            break;
-                        case AgentStreamEventType.ToolCallStart:
-                            Console.ForegroundColor = ConsoleColor.Cyan;
-                            Console.WriteLine($"[tool:call] {ev.Content}");
-                            Console.ResetColor();
-                            break;
-                        case AgentStreamEventType.ToolCallResult:
-                            Console.ForegroundColor = ConsoleColor.DarkCyan;
-                            Console.WriteLine($"[tool:result] {ev.Content}");
-                            Console.ResetColor();
-                            break;
-                        case AgentStreamEventType.Complete:
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"\n[complete] {ev.Content}");
-                            Console.ResetColor();
-                            break;
-                        case AgentStreamEventType.Error:
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            Console.WriteLine($"\n[error] {ev.Content}");
-                            Console.ResetColor();
-                            break;
-                        default:
-                            Console.ForegroundColor = ConsoleColor.DarkYellow;
-                            Console.WriteLine($"[{ev.Type}] {ev.Content}");
-                            Console.ResetColor();
-                            break;
+                        switch (ev.Type)
+                        {
+                            case AgentStreamEventType.Thought:
+                                Console.ForegroundColor = ConsoleColor.DarkGray;
+                                effectiveOut.WriteLine($"[thought] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                            case AgentStreamEventType.Token:
+                                effectiveOut.Write(ev.Content);
+                                break;
+                            case AgentStreamEventType.ToolCallStart:
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                effectiveOut.WriteLine($"[tool:call] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                            case AgentStreamEventType.ToolCallResult:
+                                Console.ForegroundColor = ConsoleColor.DarkCyan;
+                                effectiveOut.WriteLine($"[tool:result] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                            case AgentStreamEventType.Complete:
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                effectiveOut.WriteLine($"\n[complete] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                            case AgentStreamEventType.Error:
+                                Console.ForegroundColor = ConsoleColor.Red;
+                                effectiveOut.WriteLine($"\n[error] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                            default:
+                                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                                effectiveOut.WriteLine($"[{ev.Type}] {ev.Content}");
+                                Console.ResetColor();
+                                break;
+                        }
                     }
-                }
-            });
+                });
 
-            await vm.StreamExecuteAsync(source, channel, filePath);
-            await streamTask;
-            if (capturedOutput != null && outputFile != null)
-            {
-                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
+                await vm.StreamExecuteAsync(source, channel, filePath);
+                await streamTask;
+                return 0;
             }
+
+            if (enableProfile)
+            {
+                var compiler = new BytecodeCompiler();
+                var module = compiler.Compile(program, Path.GetFileNameWithoutExtension(filePath));
+                var vm = new AgentVirtualMachine(runtime: runtime);
+                var metrics = new BytecodeExecutionMetrics();
+                await vm.ExecuteBytecodeAsync(module, metrics);
+                PrintExecutionMetrics(metrics);
+                return 0;
+            }
+
+            if (enableTrace)
+            {
+                var vm = new AgentVirtualMachine(runtime: runtime);
+                await vm.ExecuteAsync(program);
+
+                Console.WriteLine();
+                await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
+                await vm.Tracer.ExportAsync(new JsonTraceExporter());
+            }
+            else
+            {
+                await runtime.ExecuteProgramAsync(program);
+            }
+
             return 0;
         }
-
-        if (enableProfile)
+        finally
         {
-            var compiler = new BytecodeCompiler();
-            var module = compiler.Compile(program, Path.GetFileNameWithoutExtension(filePath));
-            var vm = new AgentVirtualMachine(runtime: runtime);
-            var metrics = new BytecodeExecutionMetrics();
-            await vm.ExecuteBytecodeAsync(module, metrics);
-            PrintExecutionMetrics(metrics);
-            if (capturedOutput != null && outputFile != null)
-            {
-                await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
-            }
-            return 0;
+            effectiveOut.Flush();
+            await SaveCapturedOutputAsync(capturedOutput, outputFile);
         }
+    }
 
-        if (enableTrace)
-        {
-            var vm = new AgentVirtualMachine(runtime: runtime);
-            await vm.ExecuteAsync(program);
+    private static async Task SaveCapturedOutputAsync(StringWriter? capturedOutput, string? outputFile)
+    {
+        if (capturedOutput == null || string.IsNullOrWhiteSpace(outputFile))
+            return;
 
-            Console.WriteLine();
-            await vm.Tracer.ExportAsync(new ConsoleTraceExporter());
-            await vm.Tracer.ExportAsync(new JsonTraceExporter());
-        }
-        else
-        {
-            await runtime.ExecuteProgramAsync(program);
-        }
+        string? dir = Path.GetDirectoryName(Path.GetFullPath(outputFile));
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
 
-        if (capturedOutput != null && outputFile != null)
-        {
-            await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
-        }
-        return 0;
+        await File.WriteAllTextAsync(outputFile, capturedOutput.ToString());
     }
 
     private static int HandleBuild(string[] args)
@@ -1084,6 +1105,14 @@ public static class Program
         }
 
         string filePath = args[1];
+        if (!File.Exists(filePath))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Error: File not found: '{filePath}'");
+            Console.ResetColor();
+            return 1;
+        }
+
         string? datasetPath = null;
         string? targetAgentName = null;
 
@@ -1105,6 +1134,11 @@ public static class Program
         var sourceText = new SourceText(source, filePath);
         var parser = new Parser.Parser(sourceText);
         var program = parser.ParseProgram();
+        if (parser.Diagnostics.HasErrors)
+        {
+            PrintDiagnostics(sourceText, parser.Diagnostics);
+            return 1;
+        }
 
         var runtime = new AgentLangRuntime();
         await runtime.ExecuteProgramAsync(program);
@@ -1222,4 +1256,78 @@ file sealed class TeeTextWriter : TextWriter
     public override void Write(string? value) { _w1.Write(value); _w2.Write(value); }
     public override void WriteLine(string? value) { _w1.WriteLine(value); _w2.WriteLine(value); }
     public override void Flush() { _w1.Flush(); _w2.Flush(); }
+}
+
+file sealed class DlpSanitizingTextWriter : TextWriter
+{
+    private readonly TextWriter _inner;
+    private readonly System.Text.StringBuilder _buffer = new();
+
+    public DlpSanitizingTextWriter(TextWriter inner)
+    {
+        _inner = inner;
+    }
+
+    public override System.Text.Encoding Encoding => _inner.Encoding;
+
+    public override void Write(char value)
+    {
+        _buffer.Append(value);
+        if (value == '\n' && !HasUnclosedPrivateKeyBlock())
+        {
+            FlushBuffer();
+        }
+    }
+
+    public override void Write(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        _buffer.Append(value);
+        if (value.Contains('\n') && !HasUnclosedPrivateKeyBlock())
+        {
+            FlushBuffer();
+        }
+    }
+
+    public override void WriteLine(string? value)
+    {
+        if (value != null) _buffer.Append(value);
+        _buffer.Append(CoreNewLine);
+        if (!HasUnclosedPrivateKeyBlock())
+        {
+            FlushBuffer();
+        }
+    }
+
+    public override void Flush()
+    {
+        FlushBuffer();
+        _inner.Flush();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            FlushBuffer();
+        }
+        base.Dispose(disposing);
+    }
+
+    private bool HasUnclosedPrivateKeyBlock()
+    {
+        string text = _buffer.ToString();
+        int beginIdx = text.LastIndexOf("-----BEGIN ", StringComparison.Ordinal);
+        if (beginIdx < 0) return false;
+        int endIdx = text.IndexOf("-----END ", beginIdx, StringComparison.Ordinal);
+        return endIdx < 0;
+    }
+
+    private void FlushBuffer()
+    {
+        if (_buffer.Length == 0) return;
+        string sanitized = DataLossPrevention.Sanitize(_buffer.ToString(), DlpAction.Redact);
+        _buffer.Clear();
+        _inner.Write(sanitized);
+    }
 }

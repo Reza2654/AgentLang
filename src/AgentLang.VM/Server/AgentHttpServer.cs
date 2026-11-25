@@ -13,7 +13,7 @@ namespace AgentLang.VM.Server;
 
 public sealed class AgentHttpServer : IDisposable
 {
-    public const string ServerVersion = "1.0.0-rc.1";
+    public const string ServerVersion = "1.0.0-rc.2";
     private readonly HttpListener _listener = new();
     private readonly AgentVirtualMachine _vm;
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
@@ -204,6 +204,11 @@ public sealed class AgentHttpServer : IDisposable
 
             res.StatusCode = 404;
             await WriteErrorJsonAsync(res, $"Endpoint '{rawPath}' not found.", ct);
+        }
+        catch (JsonException ex)
+        {
+            res.StatusCode = 400;
+            await WriteErrorJsonAsync(res, $"Invalid JSON request body: {ex.Message}", ct);
         }
         catch (Exception ex)
         {
@@ -789,7 +794,15 @@ public sealed class AgentHttpServer : IDisposable
         try
         {
             var sourceText = new SourceText(code);
-            var program = new Parser.Parser(sourceText).ParseProgram();
+            var parser = new Parser.Parser(sourceText);
+            var program = parser.ParseProgram();
+            if (parser.Diagnostics.HasErrors)
+            {
+                string errMsg = string.Join("; ", parser.Diagnostics.Diagnostics.Select(d => d.Message));
+                await writer.WriteAsync($"data: {BuildSseEvent("error", "error", errMsg)}\n\n");
+                await writer.FlushAsync(ct);
+                return;
+            }
             await runtime.ExecuteProgramAsync(program, ct);
 
             string consoleOut = outputWriter.ToString();

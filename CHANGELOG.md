@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-rc.2] — 2026-11-25
+
+### Fixed & Hardened (Zero New Features — Release Candidate 2)
+- **CLI `--dlp` Output Redaction & `-o` Output Recovery (`Program.cs`)**: Wired `--dlp` into execution stdout, streaming output, and file output via `DlpSanitizingTextWriter` (buffering split tokens and multi-line private key blocks before redacting secrets). Fixed `-o` / `--output` missing-argument validation, automatic parent directory creation, and `try/finally` output preservation on partial failures. Added missing file and syntax error checks to `agent eval`.
+- **AST Interpreter & Bytecode VM Parity (`AgentLangRuntime.cs`, `BytecodeExecutor.cs`)**: Added modulo-by-zero exception parity (`% 0` now raises structured `AGT303` / `VM-DIV-ZERO` instead of returning `double.NaN`). Aligned `AgentLangRuntime.IsTruthy` with Bytecode VM semantics so `long 0L`, `float 0`, `decimal 0`, and empty collections evaluate as falsy.
+- **Bytecode Limit Enforcement & Corrupt Binary Safety (`AgentVirtualMachine.cs`, `BytecodeExecutor.cs`, `BytecodeModel.cs`)**: Enforced `VmOptions.MaxInstructions` and `ExecutionTimeout` during `.agtc` bytecode execution and fixed `CancellationTokenSource` disposal leaks in `ExecuteAsync`. Validated `.agtc` binary counts, stream truncation, jump targets, constant/symbol indices, operand counts, and unknown opcodes cleanly (`InvalidDataException` / `AgentLangRuntimeException`).
+- **Standard Library & Trimmed-Binary Safety (`StandardLibrary.cs`, `SchemaEntityStore.cs`)**:
+  - Replaced reflection-based `JsonSerializer.Serialize` in `json.stringify` with trim-safe `Utf8JsonWriter` via `SchemaEntityStore.WriteJsonValue` (hardened with `NaN`/`Infinity` handling, non-generic `IDictionary` support, and depth `<= 64` cycle guard).
+  - Wrapped `json.parse` errors in `AgentLangRuntimeException` (`STD-JSON-ERR`), `text.matches` invalid regex / timeout (1s ReDoS cap) in `STD-REGEX-ERR` / `STD-REGEX-TIMEOUT`, and fixed `text.replace` crashing with `ArgumentException` on empty search strings.
+  - Hardened `math.*` and `collections.slice` numeric conversions with `CultureInfo.InvariantCulture` and clamped `math.round` decimals (`0..15`).
+- **HTTP Gateway & LSP Server Error Recovery (`AgentHttpServer.cs`, `AgentLspServer.cs`, `LspTransport.cs`)**: Fixed malformed JSON on `/api/v1/run`, `/api/v1/resume`, and entity endpoints returning HTTP `500` instead of `400 Bad Request`; added syntax diagnostic errors to `/api/v1/stream` SSE error stream; wrapped LSP message dispatching so malformed JSON (`-32700`) or invalid params (`-32602`) emit JSON-RPC errors without crashing `RunAsync`; capped `LspTransport` header/payload sizes.
+- **Watcher Async-Void Guard (`WatchCommand.cs`)**: Added exception recovery around the `FileSystemWatcher.Changed` async event handler.
+- **Test Suite Expansion**: Added `V100RC2Tests.cs` bringing test coverage to **276 passing tests (258 unit + 18 integration, 100% pass rate)**.
+
 ## [1.0.0-rc.1] — 2026-11-24
 
 ### Fixed & Hardened (Zero New Features — Release Candidate 1)

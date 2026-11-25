@@ -408,8 +408,14 @@ public sealed class SchemaEntityStore
         return Path.Combine(StorageDirectory!, $"{safeName}.json");
     }
 
-    public static void WriteJsonValue(Utf8JsonWriter writer, object? value)
+    public static void WriteJsonValue(Utf8JsonWriter writer, object? value, int depth = 0)
     {
+        if (depth > 64)
+        {
+            writer.WriteStringValue("[MaxDepthExceeded]");
+            return;
+        }
+
         switch (value)
         {
             case null:
@@ -425,10 +431,16 @@ public sealed class SchemaEntityStore
                 writer.WriteNumberValue(l);
                 break;
             case double d:
-                writer.WriteNumberValue(d);
+                if (double.IsNaN(d) || double.IsInfinity(d))
+                    writer.WriteNullValue();
+                else
+                    writer.WriteNumberValue(d);
                 break;
             case float f:
-                writer.WriteNumberValue(f);
+                if (float.IsNaN(f) || float.IsInfinity(f))
+                    writer.WriteNullValue();
+                else
+                    writer.WriteNumberValue(f);
                 break;
             case decimal m:
                 writer.WriteNumberValue(m);
@@ -441,7 +453,16 @@ public sealed class SchemaEntityStore
                 foreach (var (k, v) in dict)
                 {
                     writer.WritePropertyName(k);
-                    WriteJsonValue(writer, v);
+                    WriteJsonValue(writer, v, depth + 1);
+                }
+                writer.WriteEndObject();
+                break;
+            case System.Collections.IDictionary nonGenDict:
+                writer.WriteStartObject();
+                foreach (System.Collections.DictionaryEntry entry in nonGenDict)
+                {
+                    writer.WritePropertyName(entry.Key?.ToString() ?? string.Empty);
+                    WriteJsonValue(writer, entry.Value, depth + 1);
                 }
                 writer.WriteEndObject();
                 break;
@@ -449,7 +470,7 @@ public sealed class SchemaEntityStore
                 writer.WriteStartArray();
                 foreach (var item in seq)
                 {
-                    WriteJsonValue(writer, item);
+                    WriteJsonValue(writer, item, depth + 1);
                 }
                 writer.WriteEndArray();
                 break;

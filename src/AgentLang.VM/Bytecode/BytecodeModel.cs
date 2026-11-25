@@ -149,61 +149,91 @@ public sealed class AgentBytecodeModule
 
     public static AgentBytecodeModule FromBytes(byte[] bytes)
     {
-        using var ms = new MemoryStream(bytes);
-        using var reader = new BinaryReader(ms, Encoding.UTF8);
-
-        uint magic = reader.ReadUInt32();
-        if (magic != Magic)
+        ArgumentNullException.ThrowIfNull(bytes);
+        if (bytes.Length < 6)
         {
-            throw new InvalidDataException("Invalid AGTC magic header: file is not an AgentLang bytecode binary.");
+            throw new InvalidDataException("Invalid AGTC bytecode binary: file is truncated or too short.");
         }
 
-        ushort version = reader.ReadUInt16();
-        if (version != FormatVersion)
+        try
         {
-            throw new InvalidDataException($"Unsupported AGTC bytecode format version: {version}");
-        }
+            using var ms = new MemoryStream(bytes);
+            using var reader = new BinaryReader(ms, Encoding.UTF8);
 
-        var module = new AgentBytecodeModule
-        {
-            ModuleName = reader.ReadString()
-        };
-
-        // Read Constant Pool
-        int constCount = reader.ReadInt32();
-        for (int i = 0; i < constCount; i++)
-        {
-            byte typeTag = reader.ReadByte();
-            object? val = typeTag switch
+            uint magic = reader.ReadUInt32();
+            if (magic != Magic)
             {
-                0 => null,
-                1 => reader.ReadString(),
-                2 => reader.ReadDouble(),
-                3 => reader.ReadBoolean(),
-                4 => reader.ReadInt64(),
-                _ => throw new InvalidDataException($"Unknown constant tag: {typeTag}")
+                throw new InvalidDataException("Invalid AGTC magic header: file is not an AgentLang bytecode binary.");
+            }
+
+            ushort version = reader.ReadUInt16();
+            if (version != FormatVersion)
+            {
+                throw new InvalidDataException($"Unsupported AGTC bytecode format version: {version}");
+            }
+
+            var module = new AgentBytecodeModule
+            {
+                ModuleName = reader.ReadString()
             };
-            module.ConstantPool.Add(val);
-        }
 
-        // Read Symbol Table
-        int symCount = reader.ReadInt32();
-        for (int i = 0; i < symCount; i++)
+            // Read Constant Pool
+            int constCount = reader.ReadInt32();
+            if (constCount < 0 || constCount > 1_000_000)
+            {
+                throw new InvalidDataException($"Invalid AGTC constant pool count: {constCount}");
+            }
+            for (int i = 0; i < constCount; i++)
+            {
+                byte typeTag = reader.ReadByte();
+                object? val = typeTag switch
+                {
+                    0 => null,
+                    1 => reader.ReadString(),
+                    2 => reader.ReadDouble(),
+                    3 => reader.ReadBoolean(),
+                    4 => reader.ReadInt64(),
+                    _ => throw new InvalidDataException($"Unknown constant tag: {typeTag}")
+                };
+                module.ConstantPool.Add(val);
+            }
+
+            // Read Symbol Table
+            int symCount = reader.ReadInt32();
+            if (symCount < 0 || symCount > 1_000_000)
+            {
+                throw new InvalidDataException($"Invalid AGTC symbol table count: {symCount}");
+            }
+            for (int i = 0; i < symCount; i++)
+            {
+                module.SymbolTable.Add(reader.ReadString());
+            }
+
+            // Read Instructions
+            int instCount = reader.ReadInt32();
+            if (instCount < 0 || instCount > 10_000_000)
+            {
+                throw new InvalidDataException($"Invalid AGTC instruction count: {instCount}");
+            }
+            for (int i = 0; i < instCount; i++)
+            {
+                byte opByte = reader.ReadByte();
+                if (!Enum.IsDefined(typeof(AgentOpCode), opByte))
+                {
+                    throw new InvalidDataException($"Unknown AGTC opcode byte 0x{opByte:X2} at instruction {i}.");
+                }
+                var op = (AgentOpCode)opByte;
+                int operand = reader.ReadInt32();
+                int line = reader.ReadInt32();
+                module.Instructions.Add(new BytecodeInstruction(op, operand, line));
+            }
+
+            return module;
+        }
+        catch (EndOfStreamException ex)
         {
-            module.SymbolTable.Add(reader.ReadString());
+            throw new InvalidDataException("Truncated or corrupted AGTC bytecode stream.", ex);
         }
-
-        // Read Instructions
-        int instCount = reader.ReadInt32();
-        for (int i = 0; i < instCount; i++)
-        {
-            var op = (AgentOpCode)reader.ReadByte();
-            int operand = reader.ReadInt32();
-            int line = reader.ReadInt32();
-            module.Instructions.Add(new BytecodeInstruction(op, operand, line));
-        }
-
-        return module;
     }
 
     public void SaveToFile(string filePath) =>
